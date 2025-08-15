@@ -748,6 +748,7 @@ atomic_dec_and_test(atomic_t *v)
 	instrument_atomic_read_write(v, sizeof(*v));
 	return arch_atomic_dec_and_test(v);
 }
+/* 暂时不太清楚这里为什么要定义成自己 */
 #define atomic_dec_and_test atomic_dec_and_test
 #endif
 

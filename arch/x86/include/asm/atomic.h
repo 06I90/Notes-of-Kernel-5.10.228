@@ -117,6 +117,7 @@ static __always_inline void arch_atomic_dec(atomic_t *v)
  * Atomically decrements @v by 1 and
  * returns true if the result is 0, or false for all other
  * cases.
+ * 原子变量-1，若减为0则返回true
  */
 static __always_inline bool arch_atomic_dec_and_test(atomic_t *v)
 {

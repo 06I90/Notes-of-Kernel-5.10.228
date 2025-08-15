@@ -33,6 +33,7 @@
  * @x: pointer to the memory
  *
  * Function calls kfree only if @x is not in .rodata section.
+ * 不指向只读数据段再进行kfree
  */
 void kfree_const(const void *x)
 {

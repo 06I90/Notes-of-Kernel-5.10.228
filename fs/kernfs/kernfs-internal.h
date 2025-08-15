@@ -40,6 +40,7 @@ struct kernfs_iattrs {
  * @kn: kernfs_node of interest
  *
  * Return the kernfs_root @kn belongs to.
+ * 返回一个节点的根节点
  */
 static inline struct kernfs_root *kernfs_root(struct kernfs_node *kn)
 {

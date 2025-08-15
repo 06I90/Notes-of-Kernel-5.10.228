@@ -495,6 +495,7 @@ static void kernfs_drain(struct kernfs_node *kn)
 /**
  * kernfs_get - get a reference count on a kernfs_node
  * @kn: the target kernfs_node
+ * 获取节点的引用计数
  */
 void kernfs_get(struct kernfs_node *kn)
 {
@@ -517,8 +518,10 @@ void kernfs_put(struct kernfs_node *kn)
 	struct kernfs_node *parent;
 	struct kernfs_root *root;
 
+	/* 节点为空，或者，引用计数-1后还存在引用（计数值不为0），则直接返回 */
 	if (!kn || !atomic_dec_and_test(&kn->count))
 		return;
+	/* 以下是计数值为0的情况 */
 	root = kernfs_root(kn);
  repeat:
 	/*
@@ -531,11 +534,13 @@ void kernfs_put(struct kernfs_node *kn)
 		  "kernfs_put: %s/%s: released with incorrect active_ref %d\n",
 		  parent ? parent->name : "", kn->name, atomic_read(&kn->active));
 
+	/* 如果节点是链接，链接指向的目标节点计数-1 */
 	if (kernfs_type(kn) == KERNFS_LINK)
 		kernfs_put(kn->symlink.target_kn);
 
 	kfree_const(kn->name);
 
+	/* 如果节点有附加的属性，则释放 */
 	if (kn->iattr) {
 		simple_xattrs_free(&kn->iattr->xattrs);
 		kmem_cache_free(kernfs_iattrs_cache, kn->iattr);
@@ -543,6 +548,7 @@ void kernfs_put(struct kernfs_node *kn)
 	spin_lock(&kernfs_idr_lock);
 	idr_remove(&root->ino_idr, (u32)kernfs_ino(kn));
 	spin_unlock(&kernfs_idr_lock);
+	/* 释放当前节点的内存 */
 	kmem_cache_free(kernfs_node_cache, kn);
 
 	kn = parent;
@@ -633,6 +639,7 @@ static struct kernfs_node *__kernfs_new_node(struct kernfs_root *root,
 	if (!name)
 		return NULL;
 
+	/* 创建节点时，实际调用的分配函数 */
 	kn = kmem_cache_zalloc(kernfs_node_cache, GFP_KERNEL);
 	if (!kn)
 		goto err_out1;
@@ -1308,7 +1315,7 @@ static void __kernfs_remove(struct kernfs_node *kn)
 	lockdep_assert_held(&kernfs_mutex);
 
 	/*
-	 * Short-circuit if non-root @kn has already finished removal.
+	 * Short-circuit回路 if non-root @kn has already finished removal.
 	 * This is for kernfs_remove_self() which plays with active ref
 	 * after removal.
 	 */
@@ -1317,7 +1324,10 @@ static void __kernfs_remove(struct kernfs_node *kn)
 
 	pr_debug("kernfs %s: removing\n", kn->name);
 
+	/* 停用所有子节点：对每个活跃节点（kernfs_active(pos)），active 计数器加上
+	 KN_DEACTIVATED_BIAS（一个很大的负数），使其变为非活跃状态（后续操作会拒绝访问）*/
 	/* prevent any new usage under @kn by deactivating all nodes */
+	/* descendant后裔 */
 	pos = NULL;
 	while ((pos = kernfs_next_descendant_post(pos, kn)))
 		if (kernfs_active(pos))
@@ -1325,6 +1335,7 @@ static void __kernfs_remove(struct kernfs_node *kn)
 
 	/* deactivate and unlink the subtree node-by-node */
 	do {
+		/* 获取最左子节点（kernfs_leftmost_descendant），确保从叶子节点开始删除 */
 		pos = kernfs_leftmost_descendant(kn);
 
 		/*
@@ -1333,7 +1344,7 @@ static void __kernfs_remove(struct kernfs_node *kn)
 		 * the function returns.  Make sure it doesn't go away
 		 * underneath us.
 		 */
-		kernfs_get(pos);
+		kernfs_get(pos); /* 增加引用计数，防止并发删除 */
 
 		/*
 		 * Drain iff @kn was activated.  This avoids draining and
