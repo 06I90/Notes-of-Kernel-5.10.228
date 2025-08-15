@@ -51,6 +51,7 @@ atomic_t hart_lottery __section(".sdata");
 unsigned long boot_cpu_hartid;
 static DEFINE_PER_CPU(struct cpu, cpu_devices);
 
+/* 解析设备树dts编译后生成的dtb文件 */
 static void __init parse_dtb(void)
 {
 	/* Early scan of device tree from init memory */

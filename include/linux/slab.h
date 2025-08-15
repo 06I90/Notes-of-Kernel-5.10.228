@@ -610,6 +610,7 @@ static inline void *kcalloc(size_t n, size_t size, gfp_t flags)
  * It's useful when the call to kmalloc comes from a widely-used standard
  * allocator where we care about the real place the memory allocation
  * request comes from.
+ * 是 kmalloc 的一个特殊版本，在内存分配时记录调用它的函数位置，以便追踪内存泄漏
  */
 extern void *__kmalloc_track_caller(size_t, gfp_t, unsigned long);
 #define kmalloc_track_caller(size, flags) \

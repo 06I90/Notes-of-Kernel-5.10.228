@@ -845,6 +845,7 @@ void __init __weak arch_call_rest_init(void)
 	rest_init();
 }
 
+/* 内核启动的入口函数 */
 asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 {
 	char *command_line;
@@ -867,7 +868,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	page_address_init();
 	pr_notice("%s", linux_banner);
 	early_security_init();
-	setup_arch(&command_line);
+	setup_arch(&command_line);/* 启动架构 */
 	setup_boot_config(command_line);
 	setup_command_line(command_line);
 	setup_nr_cpu_ids();
@@ -944,7 +945,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	context_tracking_init();
 	/* init some links before init_ISA_irqs() */
 	early_irq_init();
-	init_IRQ();
+	init_IRQ();/* 初始化中断，架构相关 */
 	tick_init();
 	rcu_init_nohz();
 	init_timers();

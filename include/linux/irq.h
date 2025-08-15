@@ -1261,6 +1261,8 @@ int ipi_send_mask(unsigned int virq, const struct cpumask *dest);
  *
  * Returns 0 on success, or -EBUSY if an IRQ handler has already been
  * registered.
+ * 在内核早期初始化阶段调用，用于设置中断子系统的入口函数，比如设置 handle_arch_irq。
+ * 系统中只能设置一次，后续再设置会失败返回 -EBUSY。
  */
 int __init set_handle_irq(void (*handle_irq)(struct pt_regs *));
 

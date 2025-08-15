@@ -20,10 +20,14 @@
  * of_device_id[] array of all irqchips. It is automatically placed at
  * the end of the array by the linker, thanks to being part of a
  * special section.
+ * 这个特殊的 of_device_id 元素（irqchip_of_match_end）是存放所有 irqchip 的 of_device_id[] 数
+ * 组末尾的哨兵（sentinel）。
+ * 它会被链接器自动地放在数组的最后，因为它被放置在一个特殊的段中（__irqchip_of_table_end）。
  */
 static const struct of_device_id
 irqchip_of_match_end __used __section("__irqchip_of_table_end");
 
+/* 数组__irqchip_of_table是通过链接脚本和宏机制动态生成的 */
 extern struct of_device_id __irqchip_of_table[];
 
 void __init irqchip_init(void)

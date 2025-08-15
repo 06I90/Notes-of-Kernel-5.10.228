@@ -2808,6 +2808,9 @@ static __always_inline void maybe_wipe_obj_freeptr(struct kmem_cache *s,
  * If not then __slab_alloc is called for slow processing.
  *
  * Otherwise we can simply pick the next object from the lockless free list.
+ * 在快速路径上进行内存分配，减少不必要的函数调用开销
+ * node：指定分配内存的 NUMA 节点
+ * addr：用于分配内存的地址
  */
 static __always_inline void *slab_alloc_node(struct kmem_cache *s,
 		gfp_t gfpflags, int node, unsigned long addr)

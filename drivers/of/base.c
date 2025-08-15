@@ -188,6 +188,9 @@ void __init of_core_init(void)
 		proc_symlink("device-tree", NULL, "/sys/firmware/devicetree/base");
 }
 
+/* 查找设备节点np的名为name的属性，np的多属性组成链表
+ * 返回匹配的属性的地址，同时获取属性的长度存放至lenp中
+ */
 static struct property *__of_find_property(const struct device_node *np,
 					   const char *name, int *lenp)
 {
@@ -1132,6 +1135,8 @@ EXPORT_SYMBOL(of_match_node);
  *
  * Return: A node pointer with refcount incremented, use
  * of_node_put() on it when done.
+ *        返回第一个匹配的 device_node（引用计数 +1，需调用 of_node_put 释放）
+ *        遍历设备树节点，查找与给定 of_device_id 匹配表（match table）相符的节点
  */
 struct device_node *of_find_matching_node_and_match(struct device_node *from,
 					const struct of_device_id *matches,
@@ -1144,16 +1149,16 @@ struct device_node *of_find_matching_node_and_match(struct device_node *from,
 	if (match)
 		*match = NULL;
 
-	raw_spin_lock_irqsave(&devtree_lock, flags);
-	for_each_of_allnodes_from(from, np) {
-		m = __of_match_node(matches, np);
-		if (m && of_node_get(np)) {
+	raw_spin_lock_irqsave(&devtree_lock, flags);/* 保护设备树（DT）结构的并发访问 */
+	for_each_of_allnodes_from(from, np) {/* 从 from 节点开始，遍历所有设备树节点（若 from=NULL，则从根节点开始） */
+		m = __of_match_node(matches, np);/* 检查当前节点 np 是否匹配 matches 表中的任一条目（通过 compatible 等属性） */
+		if (m && of_node_get(np)) {/* 增加节点的引用计数（防止节点被意外释放） */
 			if (match)
 				*match = m;
 			break;
 		}
 	}
-	of_node_put(from);
+	of_node_put(from);/* 释放起始节点引用 */
 	raw_spin_unlock_irqrestore(&devtree_lock, flags);
 	return np;
 }

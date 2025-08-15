@@ -419,10 +419,13 @@ extern int kptr_restrict;
  *
  * It uses pr_fmt() to generate the format string (dynamic_pr_debug() uses
  * pr_fmt() internally).
+ * 1、CONFIG_DYNAMIC_DEBUG || (CONFIG_DYNAMIC_DEBUG_CORE && DYNAMIC_DEBUG_MODULE)：dynamic_pr_debug
+ * 2、不满足1时，DEBUG：printk(KERN_DEBUG，这也是内核默认的情况
+ * 3、!DEBUG，不打印
  */
 #define pr_debug(fmt, ...)			\
 	dynamic_pr_debug(fmt, ##__VA_ARGS__)
-#elif defined(DEBUG)
+#elif defined(DEBUG) /* init/main.c中内核默认在全局定义的宏 */
 #define pr_debug(fmt, ...) \
 	printk(KERN_DEBUG pr_fmt(fmt), ##__VA_ARGS__)
 #else

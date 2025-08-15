@@ -507,6 +507,7 @@ EXPORT_SYMBOL_GPL(kernfs_get);
 
 /**
  * kernfs_put - put a reference count on a kernfs_node
+ * 对节点减少引用计数，如果引用计数=0，就删除这个节点，然后对其父节点做递归检查
  * @kn: the target kernfs_node
  *
  * Put a reference count of @kn and destroy it if it reached zero.

@@ -1224,6 +1224,7 @@ bool __init early_init_dt_scan(void *params)
  * tree of struct device_node. It also fills the "name" and "type"
  * pointers of the nodes so the normal device-tree walking functions
  * can be used.
+ * 设备节点在这里就被填充完毕
  */
 void __init unflatten_device_tree(void)
 {

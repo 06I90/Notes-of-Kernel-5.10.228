@@ -19,6 +19,7 @@
  *  Grant Likely.
  */
 
+#include "linux/magic.h"
 #define pr_fmt(fmt)	"OF: " fmt
 
 #include <linux/of.h>
@@ -545,6 +546,11 @@ out_val:
 }
 EXPORT_SYMBOL_GPL(of_prop_next_u32);
 
+/* 设备树中的compatible属性定义：
+ * compatible = "vendor,device1", "vendor,fallback";
+ * prop->value："vendor,device1\0vendor,fallback\0"
+ * prop->length = strlen("vendor,device1") + 1 + strlen("vendor,fallback") + 1;
+ */
 const char *of_prop_next_string(struct property *prop, const char *cur)
 {
 	const void *curv = cur;
@@ -552,13 +558,15 @@ const char *of_prop_next_string(struct property *prop, const char *cur)
 	if (!prop)
 		return NULL;
 
+	/* 首次调用时，传入的cur参数为NULL，直接返回第一个value中的字符串 */
 	if (!cur)
 		return prop->value;
-
+	/* 向后跳过当前字符串cur（包括末尾的 \0），得到下一个字符串的起始位置 */
 	curv += strlen(cur) + 1;
+	/* 如果已经超出属性的范围，就返回 NULL，表示已经到末尾 */
 	if (curv >= prop->value + prop->length)
 		return NULL;
-
+	/* 返回指向下一个字符串的指针 */
 	return curv;
 }
 EXPORT_SYMBOL_GPL(of_prop_next_string);

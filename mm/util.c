@@ -47,6 +47,7 @@ EXPORT_SYMBOL(kfree_const);
  * @gfp: the GFP mask used in the kmalloc() call when allocating memory
  *
  * Return: newly allocated copy of @s or %NULL in case of error
+ * 分配内存并复制字符串
  */
 char *kstrdup(const char *s, gfp_t gfp)
 {
@@ -74,6 +75,8 @@ EXPORT_SYMBOL(kstrdup);
  *
  * Return: source string if it is in .rodata section otherwise
  * fallback to kstrdup.
+ * 对应的是释放函数是kfree_const，不能使用krealloc()来释放
+ * 返回新复制的string的地址
  */
 const char *kstrdup_const(const char *s, gfp_t gfp)
 {

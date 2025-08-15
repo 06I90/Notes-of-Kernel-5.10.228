@@ -168,6 +168,7 @@ static inline bool init_section_intersects(void *virt, size_t size)
  * @addr: address to check
  *
  * Returns: true if the address is located in .rodata, false otherwise.
+ * 检查给定的内存地址addr是否属于内核的只读数据段（read-only data segment）
  */
 static inline bool is_kernel_rodata(unsigned long addr)
 {
