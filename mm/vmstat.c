@@ -1147,6 +1147,7 @@ int fragmentation_index(struct zone *zone, unsigned int order)
 #define TEXTS_FOR_ZONES(xx) TEXT_FOR_DMA(xx) TEXT_FOR_DMA32(xx) xx "_normal", \
 					TEXT_FOR_HIGHMEM(xx) xx "_movable",
 
+/* 虚拟内存状态文本，包括区域状态 NUMA状态 节点状态 写回状态 */
 const char * const vmstat_text[] = {
 	/* enum zone_stat_item counters */
 	"nr_free_pages",
@@ -1597,6 +1598,7 @@ static const struct seq_operations pagetypeinfo_op = {
 	.show	= pagetypeinfo_show,
 };
 
+/* 找到当前节点中首个有物理页面的区，并判断该区是否和参数zone是同一个区 */
 static bool is_zone_first_populated(pg_data_t *pgdat, struct zone *zone)
 {
 	int zid;
@@ -1616,6 +1618,8 @@ static void zoneinfo_show_print(struct seq_file *m, pg_data_t *pgdat,
 {
 	int i;
 	seq_printf(m, "Node %d, zone %8s", pgdat->node_id, zone->name);
+
+	/* 打印节点状态 */
 	if (is_zone_first_populated(pgdat, zone)) {
 		seq_printf(m, "\n  per-node stats");
 		for (i = 0; i < NR_VM_NODE_STAT_ITEMS; i++) {
@@ -1623,6 +1627,8 @@ static void zoneinfo_show_print(struct seq_file *m, pg_data_t *pgdat,
 				   node_page_state_pages(pgdat, i));
 		}
 	}
+
+	/* 打印区域信息 */
 	seq_printf(m,
 		   "\n  pages free     %lu"
 		   "\n        min      %lu"
@@ -1637,11 +1643,13 @@ static void zoneinfo_show_print(struct seq_file *m, pg_data_t *pgdat,
 		   high_wmark_pages(zone),
 		   zone->spanned_pages,
 		   zone->present_pages,
-		   zone_managed_pages(zone));
+		   zone_managed_pages(zone)); /* 为什么这里需要原子读，但是上面两个参数不需要原子读？ */
 
 	seq_printf(m,
 		   "\n        protection: (%ld",
 		   zone->lowmem_reserve[0]);
+
+	/* 打印zone->lowmem_reserve[]数组的全部内容 */
 	for (i = 1; i < ARRAY_SIZE(zone->lowmem_reserve); i++)
 		seq_printf(m, ", %ld", zone->lowmem_reserve[i]);
 	seq_putc(m, ')');
@@ -1652,6 +1660,7 @@ static void zoneinfo_show_print(struct seq_file *m, pg_data_t *pgdat,
 		return;
 	}
 
+	/* 打印区域状态 */
 	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS; i++)
 		seq_printf(m, "\n      %-12s %lu", zone_stat_name(i),
 			   zone_page_state(zone, i));
@@ -1691,7 +1700,7 @@ static void zoneinfo_show_print(struct seq_file *m, pg_data_t *pgdat,
 
 /*
  * Output information about zones in @pgdat.  All zones are printed regardless
- * of whether they are populated or not: lowmem_reserve_ratio operates on the
+ * of whether they are populated输入数据，填充数据 or not: lowmem_reserve_ratio operates on the
  * set of all zones and userspace would not be aware of such zones if they are
  * suppressed here (zoneinfo displays the effect of lowmem_reserve_ratio).
  */

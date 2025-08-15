@@ -29,10 +29,10 @@ extern p4d_t kasan_early_shadow_p4d[MAX_PTRS_PER_P4D];
 int kasan_populate_early_shadow(const void *shadow_start,
 				const void *shadow_end);
 
-static inline void *kasan_mem_to_shadow(const void *addr)
+static inline void *kasan_mem_to_shadow(const void *addr) /* 把内核地址转换为影子地址，影子地址 = 内核地址右移3位+影子内存区域基地址 */
 {
 	return (void *)((unsigned long)addr >> KASAN_SHADOW_SCALE_SHIFT)
-		+ KASAN_SHADOW_OFFSET;
+		+ KASAN_SHADOW_OFFSET; /* KASAN_SHADOW_OFFSET 是一个较大的常量，用于确保影子地址与内核地址空间是分开的，避免地址重叠 */
 }
 
 /* Enable reporting bugs after kasan_disable_current() */

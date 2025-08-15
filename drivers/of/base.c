@@ -1135,8 +1135,8 @@ EXPORT_SYMBOL(of_match_node);
  *
  * Return: A node pointer with refcount incremented, use
  * of_node_put() on it when done.
- *        返回第一个匹配的 device_node（引用计数 +1，需调用 of_node_put 释放）
- *        遍历设备树节点，查找与给定 of_device_id 匹配表（match table）相符的节点
+ * 返回第一个匹配的 device_node（引用计数 +1，需调用 of_node_put 释放）
+ * 遍历设备树节点，查找与给定 of_device_id 匹配表（match table）相符的节点
  */
 struct device_node *of_find_matching_node_and_match(struct device_node *from,
 					const struct of_device_id *matches,

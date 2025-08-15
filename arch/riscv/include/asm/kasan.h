@@ -8,7 +8,7 @@
 
 #ifdef CONFIG_KASAN
 
-#define KASAN_SHADOW_SCALE_SHIFT	3
+#define KASAN_SHADOW_SCALE_SHIFT	3 /* 通常这个值是 3，表示每 8B 的内核内存会映射到 1B 的影子内存 shadow memory */
 
 #define KASAN_SHADOW_SIZE	(UL(1) << (38 - KASAN_SHADOW_SCALE_SHIFT))
 #define KASAN_SHADOW_START	KERN_VIRT_START /* 2^64 - 2^38 */

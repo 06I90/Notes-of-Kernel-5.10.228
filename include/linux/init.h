@@ -12,15 +12,18 @@
 #define __noinitretpoline
 #endif
 
-/* These macros are used to mark some functions or 
+/* These macros are used to mark some functions or
  * initialized data (doesn't apply to uninitialized data)
  * as `initialization' functions. The kernel can take this
  * as hint that the function is used only during the initialization
  * phase and free up used memory resources after
+ * 这些宏用于标记一些函数或已初始化的数据（不适用于未初始化的数据）
+ * 作为“初始化”函数。内核可以将其作为提示，表明该函数仅在初始化
+ * 阶段使用，初始化完成后可以释放所使用的内存资源。
  *
  * Usage:
  * For functions:
- * 
+ *
  * You should add __init immediately before the function name, like:
  *
  * static void __init initme(int x, int y)
@@ -28,8 +31,9 @@
  *    extern int z; z = x * y;
  * }
  *
- * If the function has a prototype somewhere, you can also add
+ * If the function has a prototype原型 somewhere, you can also add
  * __init between closing brace of the prototype and semicolon:
+ * 如果该函数在某处有原型声明，你也可以将 __init 添加到原型的右括号和分号之间：
  *
  * extern int initialize_foobar_device(int, int, int) __init;
  *
@@ -37,12 +41,17 @@
  * You should insert __initdata or __initconst between the variable name
  * and equal sign followed by value, e.g.:
  *
+ * 对于已初始化的数据：
+ * 你应该将 __initdata 或 __initconst 插入到变量名和等号之间，紧接着是值，例如：
+ *
  * static int init_variable __initdata = 0;
  * static const char linux_logo[] __initconst = { 0x32, 0x36, ... };
  *
  * Don't forget to initialize data not at file scope, i.e. within a function,
  * as gcc otherwise puts the data into the bss section and not into the init
  * section.
+ * 不要忘记初始化在文件作用域之外的数据，即在函数内部初始化，
+ * 否则 gcc 会将数据放入 bss 区段，而不是放入初始化区段。
  */
 
 /* These are for everybody (although not all archs will actually
@@ -163,7 +172,7 @@ extern void (*late_time_init)(void);
 extern bool initcall_debug;
 
 #endif
-  
+
 #ifndef MODULE
 
 #ifndef __ASSEMBLY__
@@ -171,8 +180,8 @@ extern bool initcall_debug;
 /*
  * initcalls are now grouped by functionality into separate
  * subsections. Ordering inside the subsections is determined
- * by link order. 
- * For backwards compatibility, initcall() puts the call in 
+ * by link order.
+ * For backwards compatibility, initcall() puts the call in
  * the device init subsection.
  *
  * The `id' arg to __define_initcall() is needed so that multiple initcalls

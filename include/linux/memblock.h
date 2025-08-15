@@ -42,9 +42,10 @@ enum memblock_flags {
 /**
  * struct memblock_region - represents a memory region
  * @base: base address of the region
- * @size: size of the region
+ * @size: size of the region---size也是用phys_addr_t类型来表示的
  * @flags: memory region attributes
  * @nid: NUMA node id
+ * 内存区域（内存块区域）的基地址、大小、属性、所属的NUMA节点id
  */
 struct memblock_region {
 	phys_addr_t base;
@@ -57,11 +58,12 @@ struct memblock_region {
 
 /**
  * struct memblock_type - collection of memory regions of certain type
+ * 相同类型内存区域的集合
  * @cnt: number of regions
  * @max: size of the allocated array
  * @total_size: size of all regions
  * @regions: array of regions
- * @name: the memory type symbolic name
+ * @name: the memory type symbolic name---内存类型象征性的名字
  */
 struct memblock_type {
 	unsigned long cnt;

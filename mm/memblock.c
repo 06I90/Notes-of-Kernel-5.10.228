@@ -933,6 +933,7 @@ int __init_memblock memblock_clear_nomap(phys_addr_t base, phys_addr_t size)
 	return memblock_setclr_flag(base, size, 0, MEMBLOCK_NOMAP);
 }
 
+/* 返回true表示跳过该内存区域m */
 static bool should_skip_region(struct memblock_type *type,
 			       struct memblock_region *m,
 			       int nid, int flags)
@@ -943,7 +944,7 @@ static bool should_skip_region(struct memblock_type *type,
 	if (type != memblock_memory)
 		return false;
 
-	/* only memory regions are associated with nodes, check it */
+	/* only memory regions are associated with nodes, check it */ /* 内存区域m的nid和调用者希望检查的nid不符合时，跳过该m */
 	if (nid != NUMA_NO_NODE && nid != m_nid)
 		return true;
 
@@ -965,14 +966,16 @@ static bool should_skip_region(struct memblock_type *type,
 
 /**
  * __next_mem_range - next function for for_each_free_mem_range() etc.
- * @idx: pointer to u64 loop variable
+ * __next_mem_range 是 for_each_free_mem_range() 等宏背后的实现函数
+ * 遍历 memblock_type（可以是 memblock.memory 表示所有物理内存区域，或 memblock.reserved 表示保留内存区域）
+ * @idx: pointer to u64 loop variable---低32位是type_a的索引，高32位是type_b的索引
  * @nid: node selector, %NUMA_NO_NODE for all nodes
  * @flags: pick from blocks based on memory attributes
- * @type_a: pointer to memblock_type from where the range is taken
- * @type_b: pointer to memblock_type which excludes memory from being taken
- * @out_start: ptr to phys_addr_t for start address of the range, can be %NULL
- * @out_end: ptr to phys_addr_t for end address of the range, can be %NULL
- * @out_nid: ptr to int for nid of the range, can be %NULL
+ * @type_a: pointer to memblock_type from where the range is taken---需要遍历的主存区
+ * @type_b: pointer to memblock_type which excludes memory from being taken---需要排除的主存区
+ * @out_start: ptr to phys_addr_t for start address of the range, can be %NULL---当前找到区间的起始地址
+ * @out_end: ptr to phys_addr_t for end address of the range, can be %NULL---当前找到区间的起始地址
+ * @out_nid: ptr to int for nid of the range, can be %NULL---当前区间所属 NUMA 节点 ID
  *
  * Find the first area from *@idx which matches @nid, fill the out
  * parameters, and update *@idx for the next iteration.  The lower 32bit of
@@ -980,11 +983,11 @@ static bool should_skip_region(struct memblock_type *type,
  * areas before each region in type_b.	For example, if type_b regions
  * look like the following,
  *
- *	0:[0-16), 1:[32-48), 2:[128-130)
+ *	0:[0-16), 1:[32-48), 2:[128-130)---type_b表示的区域
  *
  * The upper 32bit indexes the following regions.
  *
- *	0:[0-0), 1:[16-32), 2:[48-128), 3:[130-MAX)
+ *	0:[0-0), 1:[16-32), 2:[48-128), 3:[130-MAX)---type_b取补集，type_b补集最后和type_a取交集
  *
  * As both region arrays are sorted, the function advances the two indices
  * in lockstep and returns each intersection.
@@ -994,24 +997,24 @@ void __next_mem_range(u64 *idx, int nid, enum memblock_flags flags,
 		      struct memblock_type *type_b, phys_addr_t *out_start,
 		      phys_addr_t *out_end, int *out_nid)
 {
-	int idx_a = *idx & 0xffffffff;
-	int idx_b = *idx >> 32;
+	int idx_a = *idx & 0xffffffff; /* 取低32位，高32位置0 */
+	int idx_b = *idx >> 32; /* 取高32位，无符号数右移高位补0 */
 
 	if (WARN_ONCE(nid == MAX_NUMNODES,
-	"Usage of MAX_NUMNODES is deprecated. Use NUMA_NO_NODE instead\n"))
+	"Usage of MAX_NUMNODES is deprecated. Use NUMA_NO_NODE instead\n")) /* deprecated-不推荐的，不建议的 */
 		nid = NUMA_NO_NODE;
 
 	for (; idx_a < type_a->cnt; idx_a++) {
 		struct memblock_region *m = &type_a->regions[idx_a];
 
-		phys_addr_t m_start = m->base;
+		phys_addr_t m_start = m->base; /* phys_addr_t用来表示物理地址的变量类型，本质是u32或者u64 */
 		phys_addr_t m_end = m->base + m->size;
 		int	    m_nid = memblock_get_region_node(m);
 
 		if (should_skip_region(type_a, m, nid, flags))
 			continue;
 
-		if (!type_b) {
+		if (!type_b) { /* 如果没有需要排除的内存区域 */
 			if (out_start)
 				*out_start = m_start;
 			if (out_end)
@@ -1019,11 +1022,11 @@ void __next_mem_range(u64 *idx, int nid, enum memblock_flags flags,
 			if (out_nid)
 				*out_nid = m_nid;
 			idx_a++;
-			*idx = (u32)idx_a | (u64)idx_b << 32;
+			*idx = (u32)idx_a | (u64)idx_b << 32; /* 左移，不管是有符号数还是无符号数都是补0 */
 			return;
 		}
 
-		/* scan areas before each reservation */
+		/* scan areas before each reservation */ /* 计算type_a 的某个段 [m_start, m_end) 与 type_b 补集中的某个段 [r_start, r_end) 的交集  */
 		for (; idx_b < type_b->cnt + 1; idx_b++) {
 			struct memblock_region *r;
 			phys_addr_t r_start;
@@ -1040,7 +1043,7 @@ void __next_mem_range(u64 *idx, int nid, enum memblock_flags flags,
 			 */
 			if (r_start >= m_end)
 				break;
-			/* if the two regions intersect, we're done */
+			/* if the two regions intersect交叉, we're done */
 			if (m_start < r_end) {
 				if (out_start)
 					*out_start =

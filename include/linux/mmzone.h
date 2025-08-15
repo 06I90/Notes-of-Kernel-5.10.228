@@ -443,6 +443,12 @@ struct zone {
 	 * recalculated at runtime if the sysctl_lowmem_reserve_ratio sysctl
 	 * changes.
 	 */
+	/*
+	 * 我们不知道即将分配的内存是否会被释放，或者它是否会最终被释放，
+	 * 所以为了避免浪费几个 GB 的内存，我们必须保留一些较低内存区域的内存
+	 * （否则我们可能会面临低内存区域的 OOM 问题，尽管高内存区域可能还有大量可释放的内存）。
+	 * 如果 sysctl_lowmem_reserve_ratio sysctl 的值发生变化，这个数组会在运行时重新计算。
+	 */
 	long lowmem_reserve[MAX_NR_ZONES];
 
 #ifdef CONFIG_NEED_MULTIPLE_NODES
@@ -467,13 +473,21 @@ struct zone {
 	 * holes, which is calculated as:
 	 * 	spanned_pages = zone_end_pfn - zone_start_pfn;
 	 *
+	 * spanned_pages 是该区域跨越的总页数，包括内存空洞，计算公式为：
+	 *  spanned_pages = zone_end_pfn - zone_start_pfn;
+	 *
 	 * present_pages is physical pages existing within the zone, which
 	 * is calculated as:
 	 *	present_pages = spanned_pages - absent_pages(pages in holes);
 	 *
+	 * present_pages 是该区域内存在的物理页数，计算公式为：
+	 *	present_pages = spanned_pages - absent_pages（空洞中的页数）;
+	 *
 	 * managed_pages is present pages managed by the buddy system, which
 	 * is calculated as (reserved_pages includes pages allocated by the
 	 * bootmem allocator):
+	 *	managed_pages = present_pages - reserved_pages;
+	 * managed_pages 是由伙伴系统管理的存在的页数，计算公式为（reserved_pages 包括由 bootmem 分配器分配的页）：
 	 *	managed_pages = present_pages - reserved_pages;
 	 *
 	 * So present_pages may be used by memory hotplug or memory power
@@ -490,7 +504,7 @@ struct zone {
 	 * quite infrequently.
 	 *
 	 * The span_seq lock is declared along with zone->lock because it is
-	 * frequently read in proximity to zone->lock.  It's good to
+	 * frequently read in proximity to靠近 zone->lock.  It's good to
 	 * give them a chance of being in the same cacheline.
 	 *
 	 * Write access to present_pages at runtime should be protected by
@@ -699,6 +713,7 @@ struct deferred_split {
  * On NUMA machines, each NUMA node would have a pg_data_t to describe
  * it's memory layout. On UMA machines there is a single pglist_data which
  * describes the whole memory.
+ * NUMA机上，每一个节点都有pg_data_t来描述
  *
  * Memory statistics and page replacement data structures are maintained on a
  * per-zone basis.
@@ -708,6 +723,7 @@ typedef struct pglist_data {
 	 * node_zones contains just the zones for THIS node. Not all of the
 	 * zones may be populated, but it is the full list. It is referenced by
 	 * this node's node_zonelists as well as other node's node_zonelists.
+	 * 仅包含当前节点的区域
 	 */
 	struct zone node_zones[MAX_NR_ZONES];
 
@@ -715,6 +731,7 @@ typedef struct pglist_data {
 	 * node_zonelists contains references to all zones in all nodes.
 	 * Generally the first zones will be references to this node's
 	 * node_zones.
+	 * 包含所有节点的所有区域，首个区域为当前节点的区域
 	 */
 	struct zonelist node_zonelists[MAX_ZONELISTS];
 

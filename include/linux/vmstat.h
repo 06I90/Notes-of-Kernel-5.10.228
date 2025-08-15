@@ -404,6 +404,7 @@ static inline void __mod_zone_freepage_state(struct zone *zone, int nr_pages,
 		__mod_zone_page_state(zone, NR_FREE_CMA_PAGES, nr_pages);
 }
 
+/* 定义在mm/vmstat.c */
 extern const char * const vmstat_text[];
 
 static inline const char *zone_stat_name(enum zone_stat_item item)

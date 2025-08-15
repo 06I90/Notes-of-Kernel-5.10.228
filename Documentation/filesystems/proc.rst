@@ -918,10 +918,11 @@ reclaimed to achieve this.
 meminfo
 ~~~~~~~
 
-Provides information about distribution and utilization of memory.  This
+Provides information about distribution分布 and utilization使用 of memory.  This
 varies by architecture and compile options.  The following is from a
 16GB PIII, which has highmem enabled.  You may not have all of these fields.
-
+提供关于内存分配和使用的信息。这根据架构和编译选项的不同而有所变化。以下内容来自一台启
+用了 highmem 的 16GB PIII 计算机。您可能并不拥有所有这些字段。
 ::
 
     > cat /proc/meminfo
@@ -1009,7 +1010,7 @@ LowTotal, LowFree
 SwapTotal
               total amount of swap space available
 SwapFree
-              Memory which has been evicted from RAM, and is temporarily
+              Memory which has been evicted驱逐 from RAM, and is temporarily
               on the disk
 Dirty
               Memory which is waiting to get written back to the disk

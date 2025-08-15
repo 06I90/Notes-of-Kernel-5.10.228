@@ -685,6 +685,7 @@ noinline void __ref rest_init(void)
 	 * the init task will end up wanting to create kthreads, which, if
 	 * we schedule it before we create kthreadd, will OOPS.
 	 */
+	/* 创建内核线程，新线程调用kernel_init，NULL表示kernel_init不需要参数，新线程和父进程共享文件系统状态 */
 	pid = kernel_thread(kernel_init, NULL, CLONE_FS);
 	/*
 	 * Pin init on the boot CPU. Task migration is not properly working

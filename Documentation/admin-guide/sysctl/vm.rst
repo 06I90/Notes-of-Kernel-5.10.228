@@ -249,7 +249,7 @@ To free slab objects and pagecache::
 
 	echo 3 > /proc/sys/vm/drop_caches
 
-This is a non-destructive operation and will not free any dirty objects.
+This is a non-destructive非破坏性的 operation and will not free any dirty objects.
 To increase the number of objects freed by this operation, the user may run
 `sync` prior to writing to /proc/sys/vm/drop_caches.  This will minimize the
 number of dirty objects on the system and create more candidates to be
@@ -259,7 +259,7 @@ This file is not a means to control the growth of the various kernel caches
 (inodes, dentries, pagecache, etc...)  These objects are automatically
 reclaimed by the kernel when memory is needed elsewhere on the system.
 
-Use of this file can cause performance problems.  Since it discards cached
+Use of this file can cause performance problems.  Since it discards丢弃 cached
 objects, it may cost a significant amount of I/O and CPU to recreate the
 dropped objects, especially if they were under heavy use.  Because of this,
 use outside of a testing or debugging environment is not recommended.
