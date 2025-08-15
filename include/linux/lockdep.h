@@ -305,6 +305,9 @@ extern void lock_unpin_lock(struct lockdep_map *lock, struct pin_cookie);
 
 #define lockdep_depth(tsk)	(debug_locks ? (tsk)->lockdep_depth : 0)
 
+/* WARN_ON(true)时，打印警告并返回true
+ * 不占有锁的时候发出警告
+ */
 #define lockdep_assert_held(l)	do {				\
 		WARN_ON(debug_locks && !lockdep_is_held(l));	\
 	} while (0)

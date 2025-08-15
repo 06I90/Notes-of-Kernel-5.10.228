@@ -15,21 +15,21 @@
 /*
  * red-black trees properties:  https://en.wikipedia.org/wiki/Rbtree
  *
- *  1) A node is either red or black
- *  2) The root is black
- *  3) All leaves (NULL) are black
- *  4) Both children of every red node are black
+ *  1) A node is either red or black节点是红色或黑色
+ *  2) The root is black根节点是黑色
+ *  3) All leaves (NULL) are black所有叶子节点（NULL）是黑色
+ *  4) Both children of every red node are black红色节点的两个子节点必须是黑色
  *  5) Every simple path from root to leaves contains the same number
- *     of black nodes.
+ *     of black nodes.从根到叶子的所有路径必须有相同数量的黑色节点
  *
  *  4 and 5 give the O(log n) guarantee, since 4 implies you cannot have two
- *  consecutive red nodes in a path and every red node is therefore followed by
+ *  consecutive连续的 red nodes in a path and every red node is therefore followed by
  *  a black. So if B is the number of black nodes on every simple path (as per
  *  5), then the longest possible path due to 4 is 2B.
  *
  *  We shall indicate color with case, where black nodes are uppercase and red
  *  nodes will be lowercase. Unknown color nodes shall be drawn as red within
- *  parentheses and have some accompanying text comment.
+ *  parentheses圆括号 and have some accompanying伴随 text comment.
  */
 
 /*

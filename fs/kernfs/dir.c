@@ -386,11 +386,13 @@ static int kernfs_link_sibling(struct kernfs_node *kn)
 
 /**
  *	kernfs_unlink_sibling - unlink kernfs_node from sibling rbtree
+ *  从兄弟红黑树中取消连接一个kernfs_node
  *	@kn: kernfs_node of interest
  *
  *	Try to unlink @kn from its sibling rbtree which starts from
  *	kn->parent->dir.children.  Returns %true if @kn was actually
  *	removed, %false if @kn wasn't on the rbtree.
+ *  移除成功返回true，@kn不在红黑树中则返回false
  *
  *	Locking:
  *	mutex_lock(kernfs_mutex)
@@ -456,11 +458,13 @@ void kernfs_put_active(struct kernfs_node *kn)
 
 /**
  * kernfs_drain - drain kernfs_node
- * @kn: kernfs_node to drain
+ * @kn: kernfs_node to drain排空
  *
  * Drain existing usages and nuke all existing mmaps of @kn.  Mutiple
  * removers may invoke this function concurrently on @kn and all will
  * return after draining is complete.
+ * 排空当前所有的使用，清理kn所有的mmaps
+ * 多个移除者可能会在kn上并发调用此函数，所有移除者都将在排空完成后返回
  */
 static void kernfs_drain(struct kernfs_node *kn)
 	__releases(&kernfs_mutex) __acquires(&kernfs_mutex)
@@ -473,8 +477,11 @@ static void kernfs_drain(struct kernfs_node *kn)
 	mutex_unlock(&kernfs_mutex);
 
 	if (kernfs_lockdep(kn)) {
+	/* 向Lockdep声明当前线程已经获取了某个锁，后续可用于构建锁依赖图，从而检测死锁 */
+	/* _RET_IP_是返回地址，用于记录调用点 */
 		rwsem_acquire(&kn->dep_map, 0, 0, _RET_IP_);
 		if (atomic_read(&kn->active) != KN_DEACTIVATED_BIAS)
+			/* 向 Lockdep 声明 当前锁正在被争用（有线程在等待获取锁） */
 			lock_contended(&kn->dep_map, _RET_IP_);
 	}
 
@@ -495,13 +502,13 @@ static void kernfs_drain(struct kernfs_node *kn)
 /**
  * kernfs_get - get a reference count on a kernfs_node
  * @kn: the target kernfs_node
- * 获取节点的引用计数
+ * 节点的引用计数+1
  */
 void kernfs_get(struct kernfs_node *kn)
 {
 	if (kn) {
-		WARN_ON(!atomic_read(&kn->count));
-		atomic_inc(&kn->count);
+		WARN_ON(!atomic_read(&kn->count));/* 引用计数为0时发出警告 */
+		atomic_inc(&kn->count);/* 引用计数+1 */
 	}
 }
 EXPORT_SYMBOL_GPL(kernfs_get);
@@ -1020,7 +1027,8 @@ struct kernfs_root *kernfs_create_root(struct kernfs_syscall_ops *scops,
 }
 
 /**
- * kernfs_destroy_root - destroy a kernfs hierarchy
+ * kernfs_destroy_root - destroy a kernfs hierarchy等级制度
+ * 摧毁一个kernfs层次结构
  * @root: root of the hierarchy to destroy
  *
  * Destroy the hierarchy anchored at @root by removing all existing
@@ -1243,6 +1251,7 @@ static struct kernfs_node *kernfs_leftmost_descendant(struct kernfs_node *pos)
 
 /**
  * kernfs_next_descendant_post - find the next descendant for post-order walk
+ * 后续遍历访问下一个节点，左右根
  * @pos: the current position (%NULL to initiate traversal)
  * @root: kernfs_node whose descendants to walk
  *
@@ -1312,24 +1321,24 @@ static void __kernfs_remove(struct kernfs_node *kn)
 {
 	struct kernfs_node *pos;
 
-	lockdep_assert_held(&kernfs_mutex);
+	lockdep_assert_held(&kernfs_mutex);/* 不持有锁kernfs_mutex的时候发出警告 */
 
 	/*
 	 * Short-circuit回路 if non-root @kn has already finished removal.
 	 * This is for kernfs_remove_self() which plays with active ref
 	 * after removal.
+	 * 节点为空，直接返回；非根节点为空，也直接返回
 	 */
 	if (!kn || (kn->parent && RB_EMPTY_NODE(&kn->rb)))
 		return;
 
 	pr_debug("kernfs %s: removing\n", kn->name);
 
-	/* 停用所有子节点：对每个活跃节点（kernfs_active(pos)），active 计数器加上
+	/* 后序遍历，停用当前节点的所有子节点：对每个活跃节点（kernfs_active(pos)），active 计数器加上
 	 KN_DEACTIVATED_BIAS（一个很大的负数），使其变为非活跃状态（后续操作会拒绝访问）*/
 	/* prevent any new usage under @kn by deactivating all nodes */
-	/* descendant后裔 */
 	pos = NULL;
-	while ((pos = kernfs_next_descendant_post(pos, kn)))
+	while ((pos = kernfs_next_descendant_post(pos, kn)))/* descendant后裔 */
 		if (kernfs_active(pos))
 			atomic_add(KN_DEACTIVATED_BIAS, &pos->active);
 
@@ -1383,6 +1392,7 @@ static void __kernfs_remove(struct kernfs_node *kn)
  * @kn: the kernfs_node to remove
  *
  * Remove @kn along with all its subdirectories and files.
+ * 递归地删除一个kernfs_node及其所有子目录和文件
  */
 void kernfs_remove(struct kernfs_node *kn)
 {

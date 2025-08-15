@@ -822,6 +822,7 @@ gfp_t kmalloc_fix_flags(gfp_t flags)
  * To avoid unnecessary overhead, we pass through large allocation requests
  * directly to the page allocator. We use __GFP_COMP, because we will need to
  * know the allocation order to free the pages properly in kfree.
+ * 申请 2^order × PAGE_SIZE 字节大小的一块连续物理内存，并返回其线性地址（虚拟地址），适用于比较大的内存分配需求
  */
 void *kmalloc_order(size_t size, gfp_t flags, unsigned int order)
 {

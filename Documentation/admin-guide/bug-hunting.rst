@@ -38,7 +38,7 @@ Kernel bug reports often come with a stack dump like the one below::
 	---[ end trace 6ebc60ef3981792f ]---
 
 Such stack traces provide enough information to identify the line inside the
-Kernel's source code where the bug happened. Depending on the severity of
+Kernel's source code where the bug happened. Depending on the severity严重性 of
 the issue, it may also contain the word **Oops**, as on this one::
 
 	BUG: unable to handle kernel NULL pointer dereference at   (null)
@@ -51,7 +51,7 @@ Despite being an **Oops** or some other sort of stack trace, the offended
 line is usually required to identify and handle the bug. Along this chapter,
 we'll refer to "Oops" for all kinds of stack traces that need to be analyzed.
 
-If the kernel is compiled with ``CONFIG_DEBUG_INFO``, you can enhance the
+If the kernel is compiled with ``CONFIG_DEBUG_INFO``, you can enhance改善 the
 quality of the stack trace by using file:`scripts/decode_stacktrace.sh`.
 
 Modules linked in
@@ -117,7 +117,7 @@ This can be set by running::
   $ ./scripts/config -d COMPILE_TEST -e DEBUG_KERNEL -e DEBUG_INFO
 
 On a kernel compiled with ``CONFIG_DEBUG_INFO``, you can simply copy the
-EIP value from the OOPS::
+EIP value from the OOPS::(EIP的信息目前仅针对x86架构)
 
  EIP:    0060:[<c021e50e>]    Not tainted VLI
 

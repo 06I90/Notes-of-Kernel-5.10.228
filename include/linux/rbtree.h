@@ -2,7 +2,7 @@
 /*
   Red Black Trees
   (C) 1999  Andrea Arcangeli <andrea@suse.de>
-  
+
 
   linux/include/linux/rbtree.h
 
@@ -26,7 +26,7 @@ struct rb_node {
 	struct rb_node *rb_right;
 	struct rb_node *rb_left;
 } __attribute__((aligned(sizeof(long))));
-    /* The alignment might seem pointless, but allegedly CRIS needs it */
+    /* The alignment might seem pointless, but allegedly据说 CRIS needs it */
 
 struct rb_root {
 	struct rb_node *rb_node;
