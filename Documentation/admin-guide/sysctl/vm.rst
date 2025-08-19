@@ -483,6 +483,12 @@ allocations; if you set this to lower than 1024KB, your system will
 become subtly broken, and prone to deadlock under high loads.
 
 Setting this too high will OOM your machine instantly.
+这(参数)用于强制 Linux 内存管理(VM)至少保留一定数量的空闲内存(以 KB 为单位).
+内存管理子系统会用这个数值来计算系统中每个低端内存区(lowmem zone)的 最低水位线(watermark[WMARK_MIN]).
+每个低端内存区都会根据其大小, 按比例分配到一定数量的保留空闲页.
+系统需要一些最小的空闲内存来满足带有 PF_MEMALLOC 标志的内存分配;
+如果你把这个值设置得低于 1024 KB, 你的系统将会出现一些细微的错误, 并且在高负载下很容易死锁.
+如果把这个值设置得太高, 则会立刻导致系统 OOM(内存不足).
 
 
 min_slab_ratio
@@ -729,6 +735,14 @@ The default value is 0.
 
 See Documentation/vm/overcommit-accounting.rst and
 mm/util.c::__vm_enough_memory() for more information.
+这个值是一个标志位, 用来控制内核的内存"过量分配(overcommitment)"策略(内存超售策略).
+当该值为 0 时(保守超售), 内核会尝试估算系统还剩余多少可用内存, 并根据估算结果决定是否允许用户态再分配更多内存.
+当该值为 1 时(总是超售), 内核假装系统总是有足够的内存, 直到真正用光为止.
+当该值为 2 时(禁止超售), 内核使用"绝不允许过量分配"的策略, 尽量阻止内存 overcommit.
+注意: 在这种模式下, user_reserve_kbytes 的值会影响策略.
+这个特性非常有用, 因为有些程序会调用 malloc() 申请很大一块内存(以防万一), 但实际上只使用其中的一小部分.
+默认值是 0.
+更多信息可参考文档: Documentation/vm/overcommit-accounting.rst 和源码 mm/util.c::__vm_enough_memory().
 
 
 overcommit_ratio
