@@ -127,7 +127,7 @@ struct kmemleak_scan_area {
 #define KMEMLEAK_BLACK	-1
 
 /*
- * Structure holding the metadata for each allocated memory block.
+ * Structure holding the metadata元数据 for each allocated memory block.
  * Modifications to such objects should be made while holding the
  * object->lock. Insertions or deletions from object_list, gray_list or
  * rb_node are already protected by the corresponding locks or mutex (see
@@ -136,22 +136,25 @@ struct kmemleak_scan_area {
  */
 struct kmemleak_object {
 	raw_spinlock_t lock;
-	unsigned int flags;		/* object status flags */
-	struct list_head object_list;
-	struct list_head gray_list;
-	struct rb_node rb_node;
+	unsigned int flags;		/* object status flags 见下方宏定义 */
+	struct list_head object_list;		/* 通过该字段把object添加到object_list链表中 */
+	struct list_head gray_list;		/* 通过该字段把object添加到gray_list链表中 */
+	struct rb_node rb_node;		/* 通过该字段把object添加到object_tree_root的红黑树中 */
 	struct rcu_head rcu;		/* object_list lockless traversal */
 	/* object usage count; object freed when use_count == 0 */
-	atomic_t use_count;
-	unsigned long pointer;
-	size_t size;
+	atomic_t use_count;		/* object使用计数。通过get_object增加计数，put_object减少计数，当use_count = 0时释放该object */
+	unsigned long pointer;		/* object的起始地址 */
+	size_t size;		/* object的大小 */
 	/* pass surplus references to this pointer */
 	unsigned long excess_ref;
 	/* minimum number of a pointers found before it is considered leak */
+	/* 指向内存块的最少指针个数。如果小于该值，说明有内存泄漏的嫌疑 */
 	int min_count;
 	/* the total number of pointers found pointing to this object */
+	/* 扫描到的指向内存块的指针总数，和min_count配合使用 */
 	int count;
 	/* checksum for detecting modified objects */
+	/* 内存块的CRC校验和 */
 	u32 checksum;
 	/* memory ranges to be scanned inside an object (empty for all) */
 	struct hlist_head area_list;
@@ -163,10 +166,15 @@ struct kmemleak_object {
 };
 
 /* flag representing the memory block allocation status */
+/* 表示已经分配的内存块的状态标志。在创建object的时候，会置上此标记，在释放object的时候，清除此标记。 */
 #define OBJECT_ALLOCATED	(1 << 0)
 /* flag set after the first reporting of an unreference object */
+/* 表示经过一轮内存扫描之后，把有内存泄漏风险的object的flags置上OBJECT_REPORTED，
+然后用户可以通过cat /sys/kernel/debug/kmemleak获取有内存泄漏风险的object。 */
 #define OBJECT_REPORTED		(1 << 1)
 /* flag set to not scan the object */
+/* 表示不去扫描此内存块。kmemleak为了减少误报和漏报，通过封装好的接口设置内存块是否需要扫描，
+如果不需要扫描则flags置上OBJECT_NO_SCAN标志。 */
 #define OBJECT_NO_SCAN		(1 << 2)
 /* flag set to fully scan the object when scan_area allocation failed */
 #define OBJECT_FULL_SCAN	(1 << 3)
@@ -182,14 +190,15 @@ struct kmemleak_object {
 #define HEX_MAX_LINES		2
 
 /* the list of all allocated objects */
-static LIST_HEAD(object_list);
+static LIST_HEAD(object_list);/* 新创建的object会挂入到全局的objcet_list链表中 */
 /* the list of gray-colored objects (see color_gray comment below) */
-static LIST_HEAD(gray_list);
+static LIST_HEAD(gray_list);/* 如果object不存在内存泄漏的风险，会把object加入到gray_list链表中，表示不存在内存泄漏风险的object */
 /* memory pool allocation */
 static struct kmemleak_object mem_pool[CONFIG_DEBUG_KMEMLEAK_MEM_POOL_SIZE];
 static int mem_pool_free_count = ARRAY_SIZE(mem_pool);
 static LIST_HEAD(mem_pool_free_list);
 /* search tree for object boundaries */
+/* 为了加快查询速度，新创建的object，不仅会加入到object_list全局链表中，同时会加入到object_tree_root为根的红黑树，红黑树的key值为object的起始地址 */
 static struct rb_root object_tree_root = RB_ROOT;
 /* protecting the access to object_list and object_tree_root */
 static DEFINE_RAW_SPINLOCK(kmemleak_lock);
@@ -211,6 +220,7 @@ static int kmemleak_error;
 
 /* minimum and maximum address that may be valid pointers */
 static unsigned long min_addr = ULONG_MAX;
+/* 所有object中最大的结束地址。有可能最大结束地址的object已经不在object链表中或者红黑树中。目的是为了对检测的地址进行简单的过滤 */
 static unsigned long max_addr;
 
 static struct task_struct *scan_thread;

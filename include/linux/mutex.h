@@ -24,32 +24,52 @@ struct ww_acquire_ctx;
 
 /*
  * Simple, straightforward mutexes with strict semantics:
+ * 简单、直接的互斥锁，具有严格的语义：
  *
  * - only one task can hold the mutex at a time
+ *   同一时刻只能有一个任务持有这个互斥锁
  * - only the owner can unlock the mutex
+ *   只有锁的拥有者才能解锁
  * - multiple unlocks are not permitted
+ *   不允许重复解锁
  * - recursive locking is not permitted
+ *   不允许递归加锁（同一线程不能重复获取同一把锁）
  * - a mutex object must be initialized via the API
+ *   必须通过互斥锁的API函数初始化
  * - a mutex object must not be initialized via memset or copying
+ *   mutex 对象不能通过 memset 或内存拷贝来初始化
  * - task may not exit with mutex held
+ *   任务在退出时不能仍然持有 mutex
  * - memory areas where held locks reside must not be freed
+ *   存放已持有锁的内存区域不能被释放
  * - held mutexes must not be reinitialized
+ *   被持有的互斥锁不能被再次初始化
  * - mutexes may not be used in hardware or software interrupt
  *   contexts such as tasklets and timers
+ *   mutex 不能在硬件或软件中断上下文中使用，比如 tasklet 和定时器
  *
  * These semantics are fully enforced when DEBUG_MUTEXES is
  * enabled. Furthermore, besides enforcing the above rules, the mutex
  * debugging code also implements a number of additional features
  * that make lock debugging easier and faster:
+ * 当启用 DEBUG_MUTEXES 时，这些语义会被完全强制执行。
+ * 此外，mutex 调试代码还提供了一些附加功能，使得锁调试更容易、更高效：
  *
  * - uses symbolic names of mutexes, whenever they are printed in debug output
+ *   在调试输出中使用 mutex 的符号名称
  * - point-of-acquire tracking, symbolic lookup of function names
+ *   记录获取锁的位置，并能进行函数名的符号查找
  * - list of all locks held in the system, printout of them
+ *   维护系统中所有锁的列表，并支持打印输出
  * - owner tracking
+ *   跟踪锁的拥有者
  * - detects self-recursing locks and prints out all relevant info
+ *   检测自递归加锁，并打印所有相关信息
  * - detects multi-task circular deadlocks and prints out all affected
  *   locks and tasks (and only those tasks)
+ *   检测多任务间的循环死锁，并打印所有受影响的锁和任务（且只打印相关任务）
  */
+
 struct mutex {
 	atomic_long_t		owner;
 	spinlock_t		wait_lock;

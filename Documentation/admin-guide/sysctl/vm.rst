@@ -414,6 +414,64 @@ pages of higher zones on the node.
 If you would like to protect more pages, smaller values are effective.
 The minimum value is 1 (1/1 -> 100%). The value less than 1 completely
 disables protection of the pages.
+在一些使用高端内存(highmem)的机器上, 如果允许内核让进程从 "低端内存(lowmem)" 区域分配内存, 可能会带来危险.
+原因是这些内存可能会被 mlock() 系统调用固定住, 或者由于缺乏交换空间(swapspace)而无法被回收.
+在大内存的 highmem 机器上, 这种情况可能是致命的(因为低端内存本来就很有限).
+所以, Linux 的页面分配器提供了一种机制:
+防止那些可以使用 highmem 的分配, 过度消耗 lowmem.
+也就是说, 系统会"保卫"一部分 lowmem, 避免它被用户态固定内存占用.
+(同样的逻辑也适用于旧式的 ISA DMA 区域(16 MB 内存以下).该机制同样会保护这部分区域, 避免被 highmem 或 lowmem 的请求耗尽.)
+参数 lowmem_reserve_ratio 就是用来调节内核在保护这些低端内存区时的"激进程度".
+如果你的机器带有 highmem 或者 ISA DMA, 并且应用程序调用了 mlock(), 或者你运行时没有 swap, 那么你很可能需要调整这个参数.
+lowmem_reserve_ratio 是一个数组, 可以通过以下命令查看:
+
+cat /proc/sys/vm/lowmem_reserve_ratio
+256     256     32
+
+但是这些值并不会直接使用.
+内核会用它们来计算每个 zone 的 保护页数(protection pages).
+你可以在 /proc/zoneinfo 里看到这些结果.
+以下是一个 x86-64 系统的示例:
+
+Node 0, zone      DMA
+  pages free     1355
+        min      3
+        low      3
+        high     4
+    ...
+    numa_other   0
+        protection: (0, 2004, 2004, 2004)
+
+(上面 protection 一行就是针对该 zone 的保护页数数组)
+这些保护页数会作为"额外的门槛"加入到水位线的计算中, 用来判断某个 zone 是否能被用来分配内存, 还是必须回收.
+在这个例子中:
+如果普通页(normal zone, index=2)需要从 DMA zone 分配, 并且使用的水位线是 WMARK_HIGH,
+内核会判断 DMA zone 不能被使用, 因为
+
+pages_free(1355) < watermark + protection[2]
+                < 4 + 2004 = 2008
+
+如果保护值是 0, 那这个 zone 就能被用来分配普通页.
+如果分配请求就是 DMA zone(index=0), 则使用 protection[0] (=0).
+每个 zone 的保护值计算公式如下:
+
+当 i < j 时:
+  zone[i]->protection[j]
+    = (从 zone[i+1] 到 zone[j] 的所有 managed_pages 之和)
+      / lowmem_reserve_ratio[i];
+当 i = j 时:
+  保护值 = 0 (不保护自己)
+当 i > j 时:
+  不需要保护, 值为 0
+
+默认值为:
+如果 zone[i] 表示 DMA 或 DMA32: 256
+其他情况: 32
+上式里的值, 其实是比例的倒数.
+256 表示 1/256.也就是说, 保护页数大约是高一级 zone 的总页数的 0.39%.
+如果你希望保护更多页, 可以使用 更小的数值.
+最小值是 1, 即 1/1 = 100%, 意味着把高一级 zone 的所有页都保护起来.
+小于 1 的值会彻底关闭保护机制.
 
 
 max_map_count:

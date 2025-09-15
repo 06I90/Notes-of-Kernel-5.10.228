@@ -573,6 +573,24 @@ static void tasklet_action_common(struct softirq_action *a,
 	}
 }
 
+/* 遍历并执行当前 CPU 的 Tasklet 队列（tasklet_vec）中注册的所有 Tasklet
+在 Tasklet 执行前标记为运行状态（TASKLET_STATE_RUN）
+在 Tasklet 执行后清除运行状态（TASKLET_STATE_RUN）和调度状态（TASKLET_STATE_SCHED）
+
+禁用本地中断，防止在处理 Tasklet 队列时被中断打断
+清空队列头尾指针：将队列重置为空，后续新调度的 Tasklet 会加入新队列
+遍历链表并逐个执行 Tasklet
+
+1. 队列已有任务：全部执行
+当 tasklet_action 被软中断触发时，会遍历当前 CPU 的 tasklet_vec 链表，逐个执行队列中
+已挂载的所有 tasklet_struct 任务。例如，若队列中有 A、B 两个 tasklet，tasklet_action
+会先执行 A，再执行 B，直到队列清空。
+
+2. 执行中新增任务：下次处理
+如果在某个 tasklet 执行过程中，又通过 tasklet_schedule 调度了新的 tasklet
+（包括当前正在执行的 tasklet 再次调度自己），新调度的 tasklet 会被加入队列，但不会在本次
+tasklet_action 中立即执行，而是等待下一次 TASKLET_SOFTIRQ 软中断触发时，由 tasklet_action 处理。
+*/
 static __latent_entropy void tasklet_action(struct softirq_action *a)
 {
 	tasklet_action_common(a, this_cpu_ptr(&tasklet_vec), TASKLET_SOFTIRQ);

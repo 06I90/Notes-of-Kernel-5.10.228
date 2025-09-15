@@ -595,16 +595,18 @@ static void print_cpu_stall(unsigned long gps)
 
 static void check_cpu_stall(struct rcu_data *rdp)
 {
-	unsigned long gs1;
-	unsigned long gs2;
-	unsigned long gps;
-	unsigned long j;
-	unsigned long jn;
-	unsigned long js;
+	unsigned long gs1;//第1次获取的 RCU grace period 的序号
+	unsigned long gs2;//第2次获取的 RCU grace period 的序号
+	unsigned long gps;//当前 grace period 的启动时间
+	unsigned long j;//当前时间
+	unsigned long jn;//新的下次检查 stall 的时间点
+	unsigned long js;//下次检查 stall 的时间点
 	struct rcu_node *rnp;
 
-	lockdep_assert_irqs_disabled();
+	lockdep_assert_irqs_disabled();//确保调用时 CPU 中断已经关闭（RCU stall 检查在关中断上下文里进行）
+	//用户设置了 rcu_cpu_stall_suppress=1（不报警），并且没有强制唤醒内核线程，直接返回
 	if ((rcu_stall_is_suppressed() && !READ_ONCE(rcu_kick_kthreads)) ||
+		//不在宽限期内也直接返回
 	    !rcu_gp_in_progress())
 		return;
 	rcu_stall_kick_kthreads();
@@ -630,19 +632,28 @@ static void check_cpu_stall(struct rcu_data *rdp)
 	 */
 	gs1 = READ_ONCE(rcu_state.gp_seq);
 	smp_rmb(); /* Pick up ->gp_seq first... */
-	js = READ_ONCE(rcu_state.jiffies_stall);
+	js = READ_ONCE(rcu_state.jiffies_stall);//下次检查 stall 的时间点
 	smp_rmb(); /* ...then ->jiffies_stall before the rest... */
 	gps = READ_ONCE(rcu_state.gp_start);
 	smp_rmb(); /* ...and finally ->gp_start before ->gp_seq again. */
 	gs2 = READ_ONCE(rcu_state.gp_seq);
-	if (gs1 != gs2 ||
-	    ULONG_CMP_LT(j, js) ||
-	    ULONG_CMP_GE(gps, js))
+	if (gs1 != gs2 ||//如果 gp_seq 前后不一致 → 说明 GP 已经切换了，不算 stall
+	    ULONG_CMP_LT(j, js) ||//如果当前时间 j < js → 还没到检查时间，不算 stall
+	    ULONG_CMP_GE(gps, js))//如果 GP 的启动时间大于等于 jiffies_stall → 也不算 stall
 		return; /* No stall or GP completed since entering function. */
+	/* 上面没有return，说明stall了 */
 	rnp = rdp->mynode;
 	jn = jiffies + 3 * rcu_jiffies_till_stall_check() + 3;
 	if (rcu_gp_in_progress() &&
 	    (READ_ONCE(rnp->qsmask) & rdp->grpmask) &&
+		/* 原子操作old = cmpxchg(ptr, expected, new);
+		 * 如果 *ptr == expected，则原子地把 *ptr 更新为 new，返回原本的值
+		 * 如果 *ptr != expected，不修改 *ptr，返回当前 *ptr 的值
+		 */
+		/*
+		 * 如果 rcu_state.jiffies_stall 等于 js，就更新为 jn，并返回rcu_state.jiffies_stall，满足==，视为stall
+		 * 如果rcu_state.jiffies_stall 不等于 js（说明被别人修改了），返回rcu_state.jiffies_stall，不满足==，不视为stall
+		 */
 	    cmpxchg(&rcu_state.jiffies_stall, js, jn) == js) {
 
 		/*

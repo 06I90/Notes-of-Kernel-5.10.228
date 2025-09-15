@@ -48,13 +48,19 @@
 
 static __always_inline bool memory_is_poisoned_1(unsigned long addr)
 {
+	/* 将地址转换成影子内存(每8byte有对应的1byte影子内存) */
 	s8 shadow_value = *(s8 *)kasan_mem_to_shadow((void *)addr);
-
+	/* 如果shadow_value不为0,比如说是负数或者1-7的值，
+	那么就需要进行判断，看看对应要访问的字节的影子内存对应是否能够访问 */
 	if (unlikely(shadow_value)) {
+	/* KASAN_SHADOW_MASK = 7 */
+	/* 这里把虚拟地址 &7 目的就是为了看访问的地址(实际上已经是地址+size)
+	是否大于剩余可访问的字节数，注意这里就是kasan的最根本的原理 */
 		s8 last_accessible_byte = addr & KASAN_SHADOW_MASK;
 		return unlikely(last_accessible_byte >= shadow_value);
 	}
-
+	/* shadow 值为 0，8个字节都能被访问，其中一个字节肯定能访问，
+	返回false说明kasan没有检测出问题 */
 	return false;
 }
 
@@ -95,6 +101,7 @@ static __always_inline unsigned long bytes_is_nonzero(const u8 *start,
 	}
 
 	return 0;
+
 }
 
 static __always_inline unsigned long memory_is_nonzero(const void *start,
@@ -154,6 +161,7 @@ static __always_inline bool memory_is_poisoned(unsigned long addr, size_t size)
 		case 2:
 		case 4:
 		case 8:
+			/* 最终都是调用memory_is_poisoned_1 */
 			return memory_is_poisoned_2_4_8(addr, size);
 		case 16:
 			return memory_is_poisoned_16(addr);
@@ -169,12 +177,15 @@ static __always_inline bool check_memory_region_inline(unsigned long addr,
 						size_t size, bool write,
 						unsigned long ret_ip)
 {
+	/* 既然有内存操作，操作的大小size正常也不应该是0 */
 	if (unlikely(size == 0))
 		return true;
 
+	/* 地址+大小不太可能小于地址 */
 	if (unlikely(addr + size < addr))
 		return !kasan_report(addr, size, write, ret_ip);
 
+	/* kasan的影子内存基本属于内核区的最顶端，内核地址不太可能小于影子内存 */
 	if (unlikely((void *)addr <
 		kasan_shadow_to_mem((void *)KASAN_SHADOW_START))) {
 		return !kasan_report(addr, size, write, ret_ip);

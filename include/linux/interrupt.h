@@ -587,9 +587,9 @@ static inline struct task_struct *this_cpu_ksoftirqd(void)
 	return this_cpu_read(ksoftirqd);
 }
 
-/* Tasklets --- multithreaded analogue of BHs.
+/* Tasklets --- multithreaded analogue相似物 of BHs.
 
-   This API is deprecated. Please consider using threaded IRQs instead:
+   This API is deprecated摒弃的，不赞成的. Please consider using threaded IRQs instead:
    https://lore.kernel.org/lkml/20200716081538.2sivhkj4hcyrusem@linutronix.de
 
    Main feature differing them of generic softirqs: tasklet
@@ -612,14 +612,26 @@ static inline struct task_struct *this_cpu_ksoftirqd(void)
 
 struct tasklet_struct
 {
+	/* 将多个 Tasklet 连接成队列，允许多个任务排队等待执行 */
 	struct tasklet_struct *next;
+	/* 用于标记 Tasklet 的状态，如是否正在运行或已被调度
+		- TASKLET_STATE_SCHED：Tasklet 已被调度，等待执行
+		- TASKLET_STATE_RUN：Tasklet 正在执行
+	*/
 	unsigned long state;
+	/* 计数器，用于控制 Tasklet 的启用和禁用状态
+		- count 为 0：Tasklet 处于启用状态，可以被调度和执行
+		- count 大于 0：Tasklet 被禁用，无法被调度和执行
+	*/
 	atomic_t count;
+	/* 标志，指示使用哪种类型的函数指针 */
 	bool use_callback;
+	/* Tasklet 的回调函数，可以是两种类型之一 */
 	union {
 		void (*func)(unsigned long data);
 		void (*callback)(struct tasklet_struct *t);
 	};
+	/* 用于传递给 Tasklet 函数的参数 */
 	unsigned long data;
 };
 
@@ -682,6 +694,10 @@ static inline void tasklet_unlock_wait(struct tasklet_struct *t)
 
 extern void __tasklet_schedule(struct tasklet_struct *t);
 
+/* 将 Tasklet 加入 CPU 本地队列
+避免重复调度：通过状态标志 TASKLET_STATE_SCHED 防止同一 Tasklet 被多次加入队列
+即使多次调用 tasklet_schedule()，实际仅第一次有效
+*/
 static inline void tasklet_schedule(struct tasklet_struct *t)
 {
 	if (!test_and_set_bit(TASKLET_STATE_SCHED, &t->state))
@@ -750,7 +766,7 @@ extern void tasklet_setup(struct tasklet_struct *t,
  * if more than one irq occurred.
  */
 
-#if !defined(CONFIG_GENERIC_IRQ_PROBE) 
+#if !defined(CONFIG_GENERIC_IRQ_PROBE)
 static inline unsigned long probe_irq_on(void)
 {
 	return 0;

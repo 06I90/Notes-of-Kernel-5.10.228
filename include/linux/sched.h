@@ -65,8 +65,8 @@ struct task_group;
 struct io_uring_task;
 
 /*
- * Task state bitmask. NOTE! These bits are also
- * encoded in fs/proc/array.c: get_task_state().
+ * Task state bitmask位掩码. NOTE! These bits are also
+ * encoded编码 in fs/proc/array.c: get_task_state().
  *
  * We have two separate sets of flags: task->state
  * is about runnability, while task->exit_state are

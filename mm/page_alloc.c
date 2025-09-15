@@ -7923,7 +7923,11 @@ static void setup_per_zone_lowmem_reserve(void)
 
 static void __setup_per_zone_wmarks(void)
 {
+	/* (log2(PAGE_SIZE) - log2(1024)) = 12 - 10 = 2, pages_min = min_free_kbytes ÷ 4
+	把kb转化成pages单位，默认是1024
+	*/
 	unsigned long pages_min = min_free_kbytes >> (PAGE_SHIFT - 10);
+	/* 非highmem的区域的总pages，cat /proc/zoneinfo | grep managed然后累加，观察到是48644 */
 	unsigned long lowmem_pages = 0;
 	struct zone *zone;
 	unsigned long flags;
@@ -7931,6 +7935,7 @@ static void __setup_per_zone_wmarks(void)
 	/* Calculate total number of !ZONE_HIGHMEM pages */
 	for_each_zone(zone) {
 		if (!is_highmem(zone))
+			/* zone_managed_pages返回某个区域管理的实际pages */
 			lowmem_pages += zone_managed_pages(zone);
 	}
 
@@ -7938,8 +7943,10 @@ static void __setup_per_zone_wmarks(void)
 		u64 tmp;
 
 		spin_lock_irqsave(&zone->lock, flags);
+		/* pages_min按比例分配：tmp = pages_min * (one_zone_pages ÷ all_zone_pages) */
 		tmp = (u64)pages_min * zone_managed_pages(zone);
 		do_div(tmp, lowmem_pages);
+		/* HighMem 区域的特殊处理 */
 		if (is_highmem(zone)) {
 			/*
 			 * __GFP_HIGH and PF_MEMALLOC allocations usually don't
@@ -7968,6 +7975,9 @@ static void __setup_per_zone_wmarks(void)
 		 * scale factor in proportion to available memory, but
 		 * ensure a minimum size on small systems.
 		 */
+		/* 这里的tmp用来确定 kswapd 的触发阈值间距
+		tmp 取 WMARK_MIN/4 和 zone_managed_pages * watermark_scale_factor / 10000 里的较大值
+		watermark_scale_factor 默认是 10，表示 0.1% 的 zone 页面数 */
 		tmp = max_t(u64, tmp >> 2,
 			    mult_frac(zone_managed_pages(zone),
 				      watermark_scale_factor, 10000));
