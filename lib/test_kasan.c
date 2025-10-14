@@ -25,6 +25,7 @@
 
 #include "../mm/kasan/kasan.h"
 
+/* 0 or 8 */
 #define OOB_TAG_OFF (IS_ENABLED(CONFIG_KASAN_GENERIC) ? 0 : KASAN_SHADOW_SCALE_SIZE)
 
 /*
@@ -122,7 +123,7 @@ static void kmalloc_pagealloc_oob_right(struct kunit *test)
 	}
 
 	/* Allocate a chunk that does not fit into a SLUB cache to trigger
-	 * the page allocator fallback.
+	 * the page allocator fallback应急计划，储备物.
 	 */
 	ptr = kmalloc(size, GFP_KERNEL);
 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, ptr);
@@ -151,6 +152,7 @@ static void kmalloc_pagealloc_uaf(struct kunit *test)
 static void kmalloc_pagealloc_invalid_free(struct kunit *test)
 {
 	char *ptr;
+	/* 8KB + 10 */
 	size_t size = KMALLOC_MAX_CACHE_SIZE + 10;
 
 	if (!IS_ENABLED(CONFIG_SLUB)) {
@@ -170,6 +172,8 @@ static void kmalloc_large_oob_right(struct kunit *test)
 	size_t size = KMALLOC_MAX_CACHE_SIZE - 256;
 	/* Allocate a chunk that is large enough, but still fits into a slab
 	 * and does not trigger the page allocator fallback in SLUB.
+	 * 请求的内存大于 KMALLOC_MAX_CACHE_SIZE 时，kmalloc 不再使用这些缓存池来分配
+	 * 内存，而是转而使用页面分配器（page allocator）
 	 */
 	ptr = kmalloc(size, GFP_KERNEL);
 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, ptr);
