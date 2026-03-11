@@ -503,6 +503,10 @@ extern void wq_worker_comm(char *buf, size_t size, struct task_struct *task);
  *
  * Forbids: r0 == true && r1 == 0
  */
+/*
+true   -> 成功加入队列
+false  -> work 已经在队列里
+*/
 static inline bool queue_work(struct workqueue_struct *wq,
 			      struct work_struct *work)
 {

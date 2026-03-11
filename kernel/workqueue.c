@@ -110,7 +110,7 @@ enum {
 };
 
 /*
- * Structure fields follow one of the following exclusion rules.
+ * Structure fields follow one of the following exclusion排除 rules.
  *
  * I: Modifiable by initialization/destruction paths and read-only for
  *    everyone else.

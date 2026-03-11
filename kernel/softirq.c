@@ -486,6 +486,7 @@ void __raise_softirq_irqoff(unsigned int nr)
 	or_softirq_pending(1UL << nr);
 }
 
+/* 注册（10 种）软中断类型对应的 action 函数 */
 void open_softirq(int nr, void (*action)(struct softirq_action *))
 {
 	softirq_vec[nr].action = action;
@@ -499,6 +500,11 @@ struct tasklet_head {
 	struct tasklet_struct **tail;
 };
 
+/* 定义变量：struct tasklet_head tasklet_vec/tasklet_hi_vec;
+ * 只不过每个 CPU 都有一个独立副本
+ * 分别对应 TASKLET_SOFTIRQ/HI_SOFTIRQ
+ * 内核维护的两套 tasklet 队列，对应 TASKLET_SOFTIRQ/HI_SOFTIRQ，只是执行优先级不同
+ */
 static DEFINE_PER_CPU(struct tasklet_head, tasklet_vec);
 static DEFINE_PER_CPU(struct tasklet_head, tasklet_hi_vec);
 
@@ -509,13 +515,13 @@ static void __tasklet_schedule_common(struct tasklet_struct *t,
 	struct tasklet_head *head;
 	unsigned long flags;
 
-	local_irq_save(flags);
+	local_irq_save(flags); /* 关闭本地中断 */
 	head = this_cpu_ptr(headp);
 	t->next = NULL;
 	*head->tail = t;
-	head->tail = &(t->next);
-	raise_softirq_irqoff(softirq_nr);
-	local_irq_restore(flags);
+	head->tail = &(t->next); /* 把 tasklet 插入 当前 CPU 的 tasklet 链表 */
+	raise_softirq_irqoff(softirq_nr); /* 触发 softirq，执行当前软中断类型 softirq_nr 对应的 action 函数 */
+	local_irq_restore(flags); /* 恢复本地中断 */
 }
 
 void __tasklet_schedule(struct tasklet_struct *t)
@@ -531,47 +537,6 @@ void __tasklet_hi_schedule(struct tasklet_struct *t)
 				  HI_SOFTIRQ);
 }
 EXPORT_SYMBOL(__tasklet_hi_schedule);
-
-static void tasklet_action_common(struct softirq_action *a,
-				  struct tasklet_head *tl_head,
-				  unsigned int softirq_nr)
-{
-	struct tasklet_struct *list;
-
-	local_irq_disable();
-	list = tl_head->head;
-	tl_head->head = NULL;
-	tl_head->tail = &tl_head->head;
-	local_irq_enable();
-
-	while (list) {
-		struct tasklet_struct *t = list;
-
-		list = list->next;
-
-		if (tasklet_trylock(t)) {
-			if (!atomic_read(&t->count)) {
-				if (!test_and_clear_bit(TASKLET_STATE_SCHED,
-							&t->state))
-					BUG();
-				if (t->use_callback)
-					t->callback(t);
-				else
-					t->func(t->data);
-				tasklet_unlock(t);
-				continue;
-			}
-			tasklet_unlock(t);
-		}
-
-		local_irq_disable();
-		t->next = NULL;
-		*tl_head->tail = t;
-		tl_head->tail = &t->next;
-		__raise_softirq_irqoff(softirq_nr);
-		local_irq_enable();
-	}
-}
 
 /* 遍历并执行当前 CPU 的 Tasklet 队列（tasklet_vec）中注册的所有 Tasklet
 在 Tasklet 执行前标记为运行状态（TASKLET_STATE_RUN）
@@ -589,8 +554,51 @@ static void tasklet_action_common(struct softirq_action *a,
 2. 执行中新增任务：下次处理
 如果在某个 tasklet 执行过程中，又通过 tasklet_schedule 调度了新的 tasklet
 （包括当前正在执行的 tasklet 再次调度自己），新调度的 tasklet 会被加入队列，但不会在本次
-tasklet_action 中立即执行，而是等待下一次 TASKLET_SOFTIRQ 软中断触发时，由 tasklet_action 处理。
+tasklet_action 中立即执行，而是等待下一次 TASKLET_SOFTIRQ 类型的软中断触发时，再次由 tasklet_action 处理。
 */
+static void tasklet_action_common(struct softirq_action *a,
+				  struct tasklet_head *tl_head,
+				  unsigned int softirq_nr)
+{
+	struct tasklet_struct *list;
+
+	local_irq_disable(); /* 禁用本地中断，防止在处理 Tasklet 队列时被中断打断 */
+	list = tl_head->head; /* 清空队列头尾指针：将队列重置为空，后续新调度的 Tasklet 会加入新队列 */
+	tl_head->head = NULL;
+	tl_head->tail = &tl_head->head;
+	local_irq_enable();
+
+	while (list) {
+		struct tasklet_struct *t = list;
+
+		list = list->next;
+
+		if (tasklet_trylock(t)) { /* 检查 run 状态位，如果未设置则进行设置 */
+			if (!atomic_read(&t->count)) { /* 如果没有禁用当前 tasklet */
+				/* 按理目前存在 sched 状态位，如果不存在 sched 状态位，就报 bug */
+				/* 同时清除 sched 状态位 */
+				if (!test_and_clear_bit(TASKLET_STATE_SCHED,
+							&t->state))
+					BUG();
+				if (t->use_callback)
+					t->callback(t);
+				else
+					t->func(t->data);
+				tasklet_unlock(t); /* 执行结束，清除 run 状态位 */
+				continue;
+			}
+			tasklet_unlock(t); /* 如果当前 tasklet 被禁用，则清除此前设置的 run 状态位 */
+		}
+
+		local_irq_disable();
+		t->next = NULL;
+		*tl_head->tail = t;
+		tl_head->tail = &t->next;
+		__raise_softirq_irqoff(softirq_nr); /* 继续触发下一次软中断 */
+		local_irq_enable();
+	}
+}
+
 static __latent_entropy void tasklet_action(struct softirq_action *a)
 {
 	tasklet_action_common(a, this_cpu_ptr(&tasklet_vec), TASKLET_SOFTIRQ);
@@ -613,6 +621,10 @@ void tasklet_setup(struct tasklet_struct *t,
 }
 EXPORT_SYMBOL(tasklet_setup);
 
+/* 先主动定义 tasklet，然后程序运行期间初始化
+ * 存储位置不局限于 .data/.bss 段
+ * tasklet 默认处于启用状态
+ */
 void tasklet_init(struct tasklet_struct *t,
 		  void (*func)(unsigned long), unsigned long data)
 {
@@ -640,17 +652,18 @@ void tasklet_kill(struct tasklet_struct *t)
 }
 EXPORT_SYMBOL(tasklet_kill);
 
+/* softirq 初始化 */
 void __init softirq_init(void)
 {
 	int cpu;
-
+	/* 初始化 tasklet_vec 和 tasklet_hi_vec，tail 指向 head */
 	for_each_possible_cpu(cpu) {
 		per_cpu(tasklet_vec, cpu).tail =
 			&per_cpu(tasklet_vec, cpu).head;
 		per_cpu(tasklet_hi_vec, cpu).tail =
 			&per_cpu(tasklet_hi_vec, cpu).head;
 	}
-
+	/* 注册软中断类型 TASKLET_SOFTIRQ/HI_SOFTIRQ 对应的 action 函数 */
 	open_softirq(TASKLET_SOFTIRQ, tasklet_action);
 	open_softirq(HI_SOFTIRQ, tasklet_hi_action);
 }

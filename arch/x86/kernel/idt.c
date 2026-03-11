@@ -194,7 +194,7 @@ static __init void set_intr_gate(unsigned int n, const void *addr)
  * idt_setup_early_traps - Initialize the idt table with early traps
  *
  * On X8664 these traps do not use interrupt stacks as they can't work
- * before cpu_init() is invoked and sets up TSS. The IST variants are
+ * before cpu_init() is invoked实行 and sets up TSS. The IST variants are
  * installed after that.
  */
 void __init idt_setup_early_traps(void)
@@ -283,12 +283,15 @@ static void __init idt_map_in_cea(void)
 void __init idt_setup_apic_and_irq_gates(void)
 {
 	int i = FIRST_EXTERNAL_VECTOR;
-	void *entry;
-
+	void *entry; /* 对应的中断入口函数地址 */
+	/* apic_idts 全局表
+	IDT[vector] -> APIC handler
+	*/
 	idt_setup_from_table(idt_table, apic_idts, ARRAY_SIZE(apic_idts), true);
-
+	/* 循环范围 32 ~ FIRST_SYSTEM_VECTOR */
 	for_each_clear_bit_from(i, system_vectors, FIRST_SYSTEM_VECTOR) {
 		entry = irq_entries_start + 8 * (i - FIRST_EXTERNAL_VECTOR);
+		/* IDT[i] = interrupt gate -> entry */
 		set_intr_gate(i, entry);
 	}
 

@@ -32,6 +32,8 @@
 /*
  * IDT vectors usable for external interrupt sources start at 0x20.
  * (0x80 is the syscall vector, 0x30-0x3f are for ISA)
+ * x86 向量号 0–31：CPU 异常
+ * 外部中断从 32 (0x20) 开始
  */
 #define FIRST_EXTERNAL_VECTOR		0x20
 

@@ -835,7 +835,11 @@ struct task_struct {
 
 	struct restart_block		restart_block;
 
+	/* 线程 ID */
 	pid_t				pid;
+	/* thread group id，线程组 ID，用户空间 ps 指令看到的 PID，一个进程的所有线程的 tgid 相同
+	   tgid = 线程组 leader 的 pid
+	*/
 	pid_t				tgid;
 
 #ifdef CONFIG_STACKPROTECTOR

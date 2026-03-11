@@ -215,6 +215,7 @@
 
 #endif
 
+/* 中断向量数上限 */
 #define IDT_ENTRIES			256
 #define NUM_EXCEPTION_VECTORS		32
 

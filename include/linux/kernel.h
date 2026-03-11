@@ -85,6 +85,7 @@
 
 #define typeof_member(T, m)	typeof(((T*)0)->m)
 
+/* 除法向上取整 11/5=2.2=3 */
 #define DIV_ROUND_UP __KERNEL_DIV_ROUND_UP
 
 #define DIV_ROUND_DOWN_ULL(ll, d) \

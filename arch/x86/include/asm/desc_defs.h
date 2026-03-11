@@ -74,11 +74,13 @@ struct idt_bits {
 			p	: 1;
 } __attribute__((packed));
 
+/* 中断向量表中的基本条目
+ */
 struct idt_data {
-	unsigned int	vector;
+	unsigned int	vector; /* 中断向量号 */
 	unsigned int	segment;
-	struct idt_bits	bits;
-	const void	*addr;
+	struct idt_bits	bits; /* 门描述符中的 idt_bits */
+	const void	*addr; /* 中断处理入口函数的地址 */
 };
 
 struct gate_struct {

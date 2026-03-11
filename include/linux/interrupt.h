@@ -527,6 +527,7 @@ extern bool force_irqthreads;
    frequency threaded job scheduling. For almost all the purposes
    tasklets are more than enough. F.e. all serial device BHs et
    al. should be converted to tasklets, not to softirqs.
+   软中断类型，0 为优先级最高
  */
 
 enum
@@ -624,7 +625,9 @@ struct tasklet_struct
 		- count 大于 0：Tasklet 被禁用，无法被调度和执行
 	*/
 	atomic_t count;
-	/* 标志，指示使用哪种类型的函数指针 */
+	/* 标志，指示回调函数使用哪种类型的函数指针
+	= 1，使用 callback
+	= 0，使用 func */
 	bool use_callback;
 	/* Tasklet 的回调函数，可以是两种类型之一 */
 	union {
@@ -635,6 +638,9 @@ struct tasklet_struct
 	unsigned long data;
 };
 
+/* 编译期完成初始化 tasklet（程序启动时就已经完成初始化），tasklet 处于启用状态
+ * 存放在 .data/.bss 段
+ */
 #define DECLARE_TASKLET(name, _callback)		\
 struct tasklet_struct name = {				\
 	.count = ATOMIC_INIT(0),			\
@@ -642,6 +648,9 @@ struct tasklet_struct name = {				\
 	.use_callback = true,				\
 }
 
+/* 编译期完成初始化 tasklet（程序启动时就已经完成初始化），tasklet 处于禁用状态
+ * 存放在 .data/.bss 段
+ */
 #define DECLARE_TASKLET_DISABLED(name, _callback)	\
 struct tasklet_struct name = {				\
 	.count = ATOMIC_INIT(1),			\
@@ -673,6 +682,7 @@ enum
 #ifdef CONFIG_SMP
 static inline int tasklet_trylock(struct tasklet_struct *t)
 {
+	/* return "not run", and set "run" */
 	return !test_and_set_bit(TASKLET_STATE_RUN, &(t)->state);
 }
 

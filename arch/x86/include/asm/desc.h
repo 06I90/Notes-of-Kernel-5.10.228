@@ -2,6 +2,7 @@
 #ifndef _ASM_X86_DESC_H
 #define _ASM_X86_DESC_H
 
+#include "linux/zstd.h"
 #include <asm/desc_defs.h>
 #include <asm/ldt.h>
 #include <asm/mmu.h>
@@ -120,6 +121,7 @@ static inline int desc_empty(const void *ptr)
 
 #define write_ldt_entry(dt, entry, desc)	native_write_ldt_entry(dt, entry, desc)
 #define write_gdt_entry(dt, entry, desc, type)	native_write_gdt_entry(dt, entry, desc, type)
+/* 将门描述符 g 通过 memcpy 填入 dt[entry] */
 #define write_idt_entry(dt, entry, g)		native_write_idt_entry(dt, entry, g)
 
 static inline void paravirt_alloc_ldt(struct desc_struct *ldt, unsigned entries)
@@ -396,6 +398,7 @@ static inline void init_idt_data(struct idt_data *data, unsigned int n,
 	data->bits.p	= 1;
 }
 
+/* 根据数据 d 填写门描述符 gate */
 static inline void idt_init_desc(gate_desc *gate, const struct idt_data *d)
 {
 	unsigned long addr = (unsigned long) d->addr;
