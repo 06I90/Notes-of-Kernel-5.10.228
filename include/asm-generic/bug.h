@@ -115,6 +115,9 @@ void __warn(const char *file, int line, void *caller, unsigned taint,
 	    struct pt_regs *regs, struct warn_args *args);
 
 #ifndef WARN_ON
+/* 双感叹号 !! 作用是把任何表达式"布尔化"，确保结果严格是 0 或 1
+warn_on(1) 时发出警告，比如 warn_on(1 == 1)
+*/
 #define WARN_ON(condition) ({						\
 	int __ret_warn_on = !!(condition);				\
 	if (unlikely(__ret_warn_on))					\

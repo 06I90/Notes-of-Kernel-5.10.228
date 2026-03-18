@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * include/linux/idr.h
- * 
+ *
  * 2002-10-18  written by Jim Houston jim.houston@ccur.com
  *	Copyright (C) 2002 by Concurrent Computer Corporation
  *
@@ -317,7 +317,7 @@ static inline void ida_init(struct ida *ida)
 }
 
 /*
- * ida_simple_get() and ida_simple_remove() are deprecated. Use
+ * ida_simple_get() and ida_simple_remove() are deprecated不赞成的不建议的. Use
  * ida_alloc() and ida_free() instead respectively.
  */
 #define ida_simple_get(ida, start, end, gfp)	\

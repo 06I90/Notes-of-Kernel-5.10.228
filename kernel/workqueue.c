@@ -25,6 +25,7 @@
  * Please read Documentation/core-api/workqueue.rst for details.
  */
 
+#include "linux/mmzone.h"
 #include <linux/export.h>
 #include <linux/kernel.h>
 #include <linux/sched.h>
@@ -709,6 +710,7 @@ static struct pool_workqueue *get_work_pwq(struct work_struct *work)
  *
  * Return: The worker_pool @work was last associated with.  %NULL if none.
  */
+/* 返回 work 当前排队的 pool 或者返回上一次执行的 pool，如果是新来的 work，那就是直接返回空 */
 static struct worker_pool *get_work_pool(struct work_struct *work)
 {
 	unsigned long data = atomic_long_read(&work->data);
@@ -1408,17 +1410,35 @@ static int wq_select_unbound_cpu(int cpu)
 static void __queue_work(int cpu, struct workqueue_struct *wq,
 			 struct work_struct *work)
 {
+	/* pwq: pool_workqueue，对应 (workqueue, worker_pool) 的绑定对象 */
 	struct pool_workqueue *pwq;
+	/* work 上一次所在的 worker_pool（如果之前执行过） */
 	struct worker_pool *last_pool;
+	/* work 最终要插入的链表 */
 	struct list_head *worklist;
+	/* 要写入 work->data 的 flag */
 	unsigned int work_flags;
+	/* 用户请求的 cpu，后面可能会被重新选择 */
 	unsigned int req_cpu = cpu;
 
+	/*
+	 * 当 work 处于：
+	 *   PENDING 且 还没有真正入队(list) 的状态时，
+	 * 其它线程如果试图 steal 这个 PENDING 状态（例如 cancel_work）
+	 * 会 busy-loop 等待。
+	 *
+	 * 因此：
+	 *   设置 PENDING + 入队 这两个动作必须在关中断状态下完成，
+	 *   避免被打断导致长时间不一致。
+	 */
 	/*
 	 * While a work item is PENDING && off queue, a task trying to
 	 * steal the PENDING will busy-loop waiting for it to either get
 	 * queued or lose PENDING.  Grabbing PENDING and queueing should
 	 * happen with IRQ disabled.
+	 * 如果 workqueue 正在 draining（销毁阶段），
+	 * 只允许 chain work（由已有 work 触发的新 work）。
+	 * 普通 queue_work 在这种情况下会被拒绝。
 	 */
 	lockdep_assert_irqs_disabled();
 
@@ -1427,16 +1447,31 @@ static void __queue_work(int cpu, struct workqueue_struct *wq,
 	if (unlikely(wq->flags & __WQ_DRAINING) &&
 	    WARN_ON_ONCE(!is_chained_work(wq)))
 		return;
+	/* 保护 pwq 的 RCU 生命周期 */
 	rcu_read_lock();
 retry:
 	/* pwq which will be used unless @work is executing elsewhere */
+	/*
+	 * 选择要使用的 pool_workqueue (pwq)
+	 *
+	 * pwq = (workqueue, worker_pool) 的组合对象
+	 * 它决定：
+	 *   - 使用哪个 worker_pool
+	 *   - active 并发限制
+	 */
 	if (wq->flags & WQ_UNBOUND) {
+		/*
+		 * unbound workqueue：
+		 * 不绑定 CPU，会根据 NUMA node 选择 pool
+		 */
 		if (req_cpu == WORK_CPU_UNBOUND)
 			cpu = wq_select_unbound_cpu(raw_smp_processor_id());
 		pwq = unbound_pwq_by_node(wq, cpu_to_node(cpu));
 	} else {
+		/* per-cpu workqueue */
 		if (req_cpu == WORK_CPU_UNBOUND)
 			cpu = raw_smp_processor_id();
+		/* 每 CPU 一个 pwq */
 		pwq = per_cpu_ptr(wq->cpu_pwqs, cpu);
 	}
 
@@ -1444,23 +1479,44 @@ retry:
 	 * If @work was previously on a different pool, it might still be
 	 * running there, in which case the work needs to be queued on that
 	 * pool to guarantee non-reentrancy.
+	 * 下面处理一个非常关键的问题：
+	 *   work 是否正在其它 worker_pool 上执行
+	 *
+	 * workqueue 保证：
+	 *   同一个 work_struct 不会并发执行（non-reentrancy）
 	 */
 	last_pool = get_work_pool(work);
 	if (last_pool && last_pool != pwq->pool) {
 		struct worker *worker;
 
+		/* 锁住旧 pool */
 		raw_spin_lock(&last_pool->lock);
 
+		/* 找是否有 worker 正在执行这个 work */
 		worker = find_worker_executing_work(last_pool, work);
 
 		if (worker && worker->current_pwq->wq == wq) {
+			/*
+			 * 如果这个 work 正在该 workqueue 的 worker 上运行，
+			 * 那么新的 queue 必须回到同一个 pwq，
+			 * 否则会导致并发执行
+			 */
+			/*
+			时刻1：work A 在 CPU0 的 pool 上执行中...
+			时刻2：又调用 queue_work(A)
+
+			如果直接把 A 放进 CPU1 的队列，CPU0 还没跑完，CPU1 就开始跑，就并发了！
+			解决方法：发现 A 还在 CPU0 上跑，就把新的 A 也排进 CPU0 的队列，等 CPU0 跑完了再执行。
+			*/
 			pwq = worker->current_pwq;
 		} else {
 			/* meh... not running there, queue here */
+			/* 不在执行，则可以使用当前 pwq */
 			raw_spin_unlock(&last_pool->lock);
 			raw_spin_lock(&pwq->pool->lock);
 		}
 	} else {
+		/* 正常情况：直接锁住当前 pool */
 		raw_spin_lock(&pwq->pool->lock);
 	}
 
@@ -1471,6 +1527,10 @@ retry:
 	 * without another pwq replacing it in the numa_pwq_tbl or while
 	 * work items are executing on it, so the retrying is guaranteed to
 	 * make forward-progress.
+	 * 对于 unbound pwq，有可能发生 race：
+	 *
+	 * pwq 可能已经被释放（refcnt == 0）
+	 * 这种情况下需要重新选择 pwq
 	 */
 	if (unlikely(!pwq->refcnt)) {
 		if (wq->flags & WQ_UNBOUND) {
@@ -1481,33 +1541,71 @@ retry:
 		/* oops */
 		WARN_ONCE(true, "workqueue: per-cpu pwq for %s on cpu%d has 0 refcnt",
 			  wq->name, cpu);
+		/* per-cpu pwq 出现 refcnt=0 是异常情况 */
+		WARN_ONCE(true,
+			"workqueue: per-cpu pwq for %s on cpu%d has 0 refcnt",
+			wq->name, cpu);
 	}
 
 	/* pwq determined, queue */
+	/* tracepoint: work 入队 */
 	trace_workqueue_queue_work(req_cpu, pwq, work);
 
+	/* work 不应该已经在某个链表里 */
 	if (WARN_ON(!list_empty(&work->entry)))
 		goto out;
 
+	/*
+	 * 记录当前颜色(color)的 in-flight work 数
+	 *
+	 * color 用于 flush_workqueue() 的同步机制
+	 */
 	pwq->nr_in_flight[pwq->work_color]++;
+	/* 将 color 转换成 work_flags */
 	work_flags = work_color_to_flags(pwq->work_color);
+
+	/*
+	 * active 并发控制：
+	 *
+	 * 如果当前 active work 数 < max_active
+	 *   -> 立即进入 worker_pool 执行
+	 * 否则
+	 *   -> 放入 inactive 队列等待
+	 */
 
 	if (likely(pwq->nr_active < pwq->max_active)) {
 		trace_workqueue_activate_work(work);
 		pwq->nr_active++;
+		/* active work 放入 worker_pool 的 worklist */
 		worklist = &pwq->pool->worklist;
+		/*
+		 * 如果这是队列里的第一个 work，
+		 * 记录 watchdog 时间
+		 */
 		if (list_empty(worklist))
 			pwq->pool->watchdog_ts = jiffies;
 	} else {
+		/* 标记为 inactive */
 		work_flags |= WORK_STRUCT_INACTIVE;
+		/* 放入 pwq 的 inactive 候补队列 */
 		worklist = &pwq->inactive_works;
 	}
 
+	/* debug instrumentation */
 	debug_work_activate(work);
+	/*
+	 * 真正执行插入操作：
+	 *
+	 *   work->data = pwq + flags
+	 *   list_add_tail(work, worklist)
+	 *   wake_up_worker()
+	 */
 	insert_work(pwq, work, worklist, work_flags);
 
 out:
+	/* 释放 pool 锁 */
 	raw_spin_unlock(&pwq->pool->lock);
+	/* 释放 RCU 读锁 */
 	rcu_read_unlock();
 }
 
@@ -2279,6 +2377,7 @@ __acquires(&pool->lock)
 	 */
 	lockdep_invariant_state(true);
 	trace_workqueue_execute_start(work);
+	/* 核心执行点 */
 	worker->current_func(work);
 	/*
 	 * While we must be careful to not use "work" after this, the trace
@@ -5915,24 +6014,30 @@ static inline void wq_watchdog_init(void) { }
 
 static void __init wq_numa_init(void)
 {
+	/* 每个 NUMA node 对应一个 cpumask 的表 */
 	cpumask_var_t *tbl;
 	int node, cpu;
 
+	/* 如果系统只有一个 NUMA node，则不需要 NUMA 相关处理 */
 	if (num_possible_nodes() <= 1)
 		return;
 
+	/* 如果用户通过参数关闭了 workqueue 的 NUMA 支持 */
 	if (wq_disable_numa) {
 		pr_info("workqueue: NUMA affinity support disabled\n");
 		return;
 	}
 
+	/* 检查每个 possible CPU 是否都能映射到有效的 NUMA node */
 	for_each_possible_cpu(cpu) {
 		if (WARN_ON(cpu_to_node(cpu) == NUMA_NO_NODE)) {
+			/* 如果 CPU 无法映射到 node，说明 NUMA 拓扑不完整，直接禁用 NUMA */
 			pr_warn("workqueue: NUMA node mapping not available for cpu%d, disabling NUMA support\n", cpu);
 			return;
 		}
 	}
 
+	/* 分配一个临时的 workqueue 属性结构，用于后续更新 unbound workqueue NUMA 属性 */
 	wq_update_unbound_numa_attrs_buf = alloc_workqueue_attrs();
 	BUG_ON(!wq_update_unbound_numa_attrs_buf);
 
@@ -5941,19 +6046,26 @@ static void __init wq_numa_init(void)
 	 * available.  Build one from cpu_to_node() which should have been
 	 * fully initialized by now.
 	 */
+
+	/* 为每个 node 分配一个 cpumask 指针 */
 	tbl = kcalloc(nr_node_ids, sizeof(tbl[0]), GFP_KERNEL);
 	BUG_ON(!tbl);
 
+	/* 为每个 node 分配实际的 cpumask */
 	for_each_node(node)
 		BUG_ON(!zalloc_cpumask_var_node(&tbl[node], GFP_KERNEL,
 				node_online(node) ? node : NUMA_NO_NODE));
 
+	/* 遍历所有 possible CPU，根据 cpu->node 映射填充 cpumask */
 	for_each_possible_cpu(cpu) {
 		node = cpu_to_node(cpu);
+		/* 将该 CPU 加入对应 node 的 cpumask */
 		cpumask_set_cpu(cpu, tbl[node]);
 	}
 
+	/* 保存每个 NUMA node 对应的 CPU mask */
 	wq_numa_possible_cpumask = tbl;
+	/* 标记 workqueue NUMA 支持已启用 */
 	wq_numa_enabled = true;
 }
 
@@ -6040,7 +6152,7 @@ void __init workqueue_init_early(void)
  * workqueue_init - bring workqueue subsystem fully online
  *
  * This is the latter half of two-staged workqueue subsystem initialization
- * and invoked as soon as kthreads can be created and scheduled.
+ * and invoked调用 as soon as kthreads can be created and scheduled.
  * Workqueues have been created and work items queued on them, but there
  * are no kworkers executing the work items yet.  Populate the worker pools
  * with the initial workers and enable future kworker creations.
@@ -6060,18 +6172,34 @@ void __init workqueue_init(void)
 	 *
 	 * Also, while iterating workqueues, create rescuers if requested.
 	 */
+
+	/* 初始化 workqueue 的 NUMA 相关结构 */
+	/* 主要作用是建立 NUMA node 与 worker_pool / pwq 的关联关系 */
 	wq_numa_init();
 
+	/* workqueue 与 worker_pool 的全局结构需要在该 mutex 保护下修改 */
 	mutex_lock(&wq_pool_mutex);
 
+	/* 遍历系统中所有 possible CPU */
 	for_each_possible_cpu(cpu) {
+
+		/* 遍历该 CPU 上的所有 worker_pool */
 		for_each_cpu_worker_pool(pool, cpu) {
+
+			/* 设置该 worker_pool 所属的 NUMA node */
 			pool->node = cpu_to_node(cpu);
 		}
 	}
 
+	/* 遍历系统中所有 workqueue_struct */
 	list_for_each_entry(wq, &workqueues, list) {
+
+		/* 更新 unbound workqueue 的 NUMA 亲和性 */
+		/* 让 unbound workqueue 的 pwq 与 NUMA node 对齐 */
 		wq_update_unbound_numa(wq, smp_processor_id(), true);
+
+		/* 如果该 workqueue 需要 rescuer worker，则创建 */
+		/* rescuer 用于在内存压力等情况下保证 work 仍然可以执行 */
 		WARN(init_rescuer(wq),
 		     "workqueue: failed to create early rescuer for %s",
 		     wq->name);
@@ -6080,16 +6208,31 @@ void __init workqueue_init(void)
 	mutex_unlock(&wq_pool_mutex);
 
 	/* create the initial workers */
+
+	/* 为每个 online CPU 创建初始 worker 线程 */
 	for_each_online_cpu(cpu) {
+
+		/* 遍历该 CPU 上的 worker_pool */
 		for_each_cpu_worker_pool(pool, cpu) {
+
+			/* 清除 DISASSOCIATED 标志 */
+			/* 表示该 pool 现在正式与 CPU 关联 */
 			pool->flags &= ~POOL_DISASSOCIATED;
+
+			/* 创建第一个 worker 线程 (kworker) */
 			BUG_ON(!create_worker(pool));
 		}
 	}
 
+	/* 为所有 unbound worker_pool 创建 worker */
 	hash_for_each(unbound_pool_hash, bkt, pool, hash_node)
+
+		/* unbound pool 也需要至少一个 worker */
 		BUG_ON(!create_worker(pool));
 
+	/* 标记 workqueue 子系统已经 fully online */
 	wq_online = true;
+
+	/* 初始化 workqueue watchdog，用于检测 worker stall */
 	wq_watchdog_init();
 }

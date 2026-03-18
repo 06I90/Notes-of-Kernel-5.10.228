@@ -7,6 +7,7 @@
  * APIs (schedule(), wakeup variants, etc.)
  */
 
+#include "linux/zstd.h"
 #include <uapi/linux/sched.h>
 
 #include <asm/current.h>
@@ -76,8 +77,11 @@ struct io_uring_task;
  */
 
 /* Used in tsk->state: */
+/* 就绪态和运行态合称为 RUNNING */
 #define TASK_RUNNING			0x0000
+/* 浅睡眠能被信号唤醒 */
 #define TASK_INTERRUPTIBLE		0x0001
+/* 深睡眠不能被信号唤醒 */
 #define TASK_UNINTERRUPTIBLE		0x0002
 #define __TASK_STOPPED			0x0004
 #define __TASK_TRACED			0x0008
@@ -102,6 +106,7 @@ struct io_uring_task;
 #define TASK_IDLE			(TASK_UNINTERRUPTIBLE | TASK_NOLOAD)
 
 /* Convenience macros for the sake of wake_up(): */
+/* 睡眠状态统称为阻塞态 */
 #define TASK_NORMAL			(TASK_INTERRUPTIBLE | TASK_UNINTERRUPTIBLE)
 
 /* get_task_state(): */
@@ -323,6 +328,9 @@ struct sched_info {
 
 struct load_weight {
 	unsigned long			weight;
+	/* inv_weight = 2^32/weight，a/weight = a*inv_weight >> 32
+	* 可以方便地把除法转化为乘法，而 inv_weight 可以提前计算保存
+	*/
 	u32				inv_weight;
 };
 
@@ -457,6 +465,7 @@ struct sched_statistics {
 
 struct sched_entity {
 	/* For load-balancing: */
+	/* 进程的权重 */
 	struct load_weight		load;
 	struct rb_node			run_node;
 	struct list_head		group_node;
@@ -464,6 +473,7 @@ struct sched_entity {
 
 	u64				exec_start;
 	u64				sum_exec_runtime;
+	/* 进程的虚拟运行时间 */
 	u64				vruntime;
 	u64				prev_sum_exec_runtime;
 
@@ -686,12 +696,16 @@ struct task_struct {
 #endif
 	int				on_rq;
 
+	/* 动态优先级 */
 	int				prio;
+	/* static_prio = nice + 120, ∈[100, 139] */
 	int				static_prio;
 	int				normal_prio;
+	/* 实时进程的用户空间的静态优先级 */
 	unsigned int			rt_priority;
 
 	const struct sched_class	*sched_class;
+	/* 控制进程调度 */
 	struct sched_entity		se;
 	struct sched_rt_entity		rt;
 #ifdef CONFIG_CGROUP_SCHED

@@ -488,7 +488,8 @@ extern void wq_worker_comm(char *buf, size_t size, struct task_struct *task);
  * Returns %false if @work was already on a queue, %true otherwise.
  *
  * We queue the work to the CPU on which it was submitted, but if the CPU dies
- * it can be processed by another CPU.
+ * it can be processed by another CPU. 默认会把 work 放到当前 CPU 的 worker_pool
+ * 如果 CPU hotplug 下线，work 可能被别的 CPU 执行
  *
  * Memory-ordering properties:  If it returns %true, guarantees that all stores
  * preceding the call to queue_work() in the program order will be visible from
@@ -506,6 +507,8 @@ extern void wq_worker_comm(char *buf, size_t size, struct task_struct *task);
 /*
 true   -> 成功加入队列
 false  -> work 已经在队列里
+如果 queue_work() 成功 enqueue 一个 work，那么调用 queue_work() 之前的所有写
+操作，在 work 函数执行时一定对 worker CPU 可见
 */
 static inline bool queue_work(struct workqueue_struct *wq,
 			      struct work_struct *work)

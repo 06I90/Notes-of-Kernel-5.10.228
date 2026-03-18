@@ -121,7 +121,9 @@ extern void call_trace_sched_update_nr_running(struct rq *rq, int count);
  */
 #ifdef CONFIG_64BIT
 # define NICE_0_LOAD_SHIFT	(SCHED_FIXEDPOINT_SHIFT + SCHED_FIXEDPOINT_SHIFT)
+/* 在 64 位系统上是将权重放大 1024 倍，可以在运算时提高精度，不影响权重的逻辑 */
 # define scale_load(w)		((w) << SCHED_FIXEDPOINT_SHIFT)
+/* 在 64 位系统上是将权重缩小 1024 倍，可以在运算时提高精度，不影响权重的逻辑 */
 # define scale_load_down(w) \
 ({ \
 	unsigned long __w = (w); \
@@ -131,6 +133,7 @@ extern void call_trace_sched_update_nr_running(struct rq *rq, int count);
 })
 #else
 # define NICE_0_LOAD_SHIFT	(SCHED_FIXEDPOINT_SHIFT)
+/* 在32位系统上是空操作 */
 # define scale_load(w)		(w)
 # define scale_load_down(w)	(w)
 #endif
@@ -525,6 +528,7 @@ struct cfs_rq {
 	unsigned int		idle_h_nr_running; /* SCHED_IDLE */
 
 	u64			exec_clock;
+	/* 运行队列的最小虚拟运行时间 */
 	u64			min_vruntime;
 #ifndef CONFIG_64BIT
 	u64			min_vruntime_copy;
@@ -725,6 +729,8 @@ static inline void se_update_runnable(struct sched_entity *se)
 		se->runnable_weight = se->my_q->h_nr_running;
 }
 
+/* 通过判断 on_rq 来确认处于就绪态（不能通过 TASK_RUNNING 状态来判断，因为
+ * TASK_RUNNING 包括了运行态和就绪态） */
 static inline long se_runnable(struct sched_entity *se)
 {
 	if (entity_is_task(se))
@@ -1699,6 +1705,8 @@ static inline int task_current(struct rq *rq, struct task_struct *p)
 	return rq->curr == p;
 }
 
+/* 通过判断 on_cpu 来确认处于运行态（不能通过 TASK_RUNNING 状态来判断，因为
+ * TASK_RUNNING 包括了运行态和就绪态） */
 static inline int task_running(struct rq *rq, struct task_struct *p)
 {
 #ifdef CONFIG_SMP

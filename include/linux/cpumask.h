@@ -7,6 +7,7 @@
  * set of CPU's in a system, one bit position per CPU number.  In general,
  * only nr_cpu_ids (<= NR_CPUS) bits are valid.
  */
+#include "linux/mmzone.h"
 #include <linux/kernel.h>
 #include <linux/threads.h>
 #include <linux/bitmap.h>
@@ -91,9 +92,13 @@ extern struct cpumask __cpu_possible_mask;
 extern struct cpumask __cpu_online_mask;
 extern struct cpumask __cpu_present_mask;
 extern struct cpumask __cpu_active_mask;
+/* 操作系统最多能支持的 CPU */
 #define cpu_possible_mask ((const struct cpumask *)&__cpu_possible_mask)
+/* 已经上线的 CPU */
 #define cpu_online_mask   ((const struct cpumask *)&__cpu_online_mask)
+/* 计算机上存在的 CPU */
 #define cpu_present_mask  ((const struct cpumask *)&__cpu_present_mask)
+/* 未被隔离可以参与调度的 CPU */
 #define cpu_active_mask   ((const struct cpumask *)&__cpu_active_mask)
 
 extern atomic_t __num_online_cpus;
@@ -753,6 +758,7 @@ static inline bool cpumask_available(cpumask_var_t mask)
 }
 
 #else
+/* 数组可以退化成指针，可以保证函数接口统一 */
 typedef struct cpumask cpumask_var_t[1];
 
 #define this_cpu_cpumask_var_ptr(x) this_cpu_ptr(x)

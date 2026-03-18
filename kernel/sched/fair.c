@@ -20,6 +20,7 @@
  *  Adaptive scheduling granularity, math enhancements by Peter Zijlstra
  *  Copyright (C) 2007 Red Hat, Inc., Peter Zijlstra
  */
+#include "linux/mmzone.h"
 #include "sched.h"
 
 /*
@@ -56,12 +57,14 @@ enum sched_tunable_scaling sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_L
  *
  * (default: 0.75 msec * (1 + ilog(ncpus)), units: nanoseconds)
  */
+/* 调度粒度默认值，后续还会修改 */
 unsigned int sysctl_sched_min_granularity			= 750000ULL;
 static unsigned int normalized_sysctl_sched_min_granularity	= 750000ULL;
 
 /*
  * This value is kept at sysctl_sched_latency/sysctl_sched_min_granularity
  */
+/* 调度延迟默认值，后续还会修改 */
 static unsigned int sched_nr_latency = 8;
 
 /*
@@ -71,7 +74,7 @@ static unsigned int sched_nr_latency = 8;
 unsigned int sysctl_sched_child_runs_first __read_mostly;
 
 /*
- * SCHED_OTHER wake-up granularity.
+ * SCHED_OTHER wake-up granularity间隔尺寸（粒度）.
  *
  * This option delays the preemption effects of decoupled workloads
  * and reduces their over-scheduling. Synchronous workloads will still
@@ -79,6 +82,7 @@ unsigned int sysctl_sched_child_runs_first __read_mostly;
  *
  * (default: 1 msec * (1 + ilog(ncpus)), units: nanoseconds)
  */
+/* 唤醒粒度默认值，后续还会修改 */
 unsigned int sysctl_sched_wakeup_granularity			= 1000000UL;
 static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
 
@@ -161,6 +165,7 @@ static unsigned int get_update_sysctl_factor(void)
 	unsigned int cpus = min_t(unsigned int, num_online_cpus(), 8);
 	unsigned int factor;
 
+	/* 可以通过 sys/kernel/debug/sched/tunable_scaling 来改变（目前没有找到） */
 	switch (sysctl_sched_tunable_scaling) {
 	case SCHED_TUNABLESCALING_NONE:
 		factor = 1;
@@ -168,8 +173,10 @@ static unsigned int get_update_sysctl_factor(void)
 	case SCHED_TUNABLESCALING_LINEAR:
 		factor = cpus;
 		break;
+	/* 默认 */
 	case SCHED_TUNABLESCALING_LOG:
 	default:
+		/* 针对 8 核 CPU，factor = 1 + 3 */
 		factor = 1 + ilog2(cpus);
 		break;
 	}
@@ -177,18 +184,21 @@ static unsigned int get_update_sysctl_factor(void)
 	return factor;
 }
 
+/* 更新调度粒度、调度延迟、唤醒粒度 */
 static void update_sysctl(void)
 {
 	unsigned int factor = get_update_sysctl_factor();
 
 #define SET_SYSCTL(name) \
 	(sysctl_##name = (factor) * normalized_sysctl_##name)
+	/* 8 核 CPU，调度粒度为 4*0.75，意味着一个进程如果运行还不到3毫秒是不能被抢占的 */
 	SET_SYSCTL(sched_min_granularity);
 	SET_SYSCTL(sched_latency);
 	SET_SYSCTL(sched_wakeup_granularity);
 #undef SET_SYSCTL
 }
 
+/* 初始化调度粒度、调度延迟、唤醒粒度 */
 void __init sched_init_granularity(void)
 {
 	update_sysctl();
@@ -694,39 +704,85 @@ static u64 __sched_period(unsigned long nr_running)
 
 /*
  * We calculate the wall-time slice from the period by taking a part
- * proportional to the weight.
+ * proportional比例的 to the weight.
  *
  * s = p*P[w/rw]
  */
 static u64 sched_slice(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
+	/* 当前 CFS 运行队列中的 runnable 实体数量 */
 	unsigned int nr_running = cfs_rq->nr_running;
+
+	/* 计算得到的时间片（最终返回值） */
 	u64 slice;
 
+	/*
+	 * 如果开启 ALT_PERIOD 特性：
+	 * 使用 rq 级别的 h_nr_running（层级统计的 runnable 数量）
+	 * 而不是当前 cfs_rq 的 nr_running
+	 */
 	if (sched_feat(ALT_PERIOD))
 		nr_running = rq_of(cfs_rq)->cfs.h_nr_running;
 
+	/*
+	 * 根据 runnable 数量计算“调度周期”（period）
+	 *
+	 * + !se->on_rq 的含义：
+	 * 如果当前 se 还没在 rq 上（例如 wakeup 过程中），
+	 * 需要把它“假想加入”进去计算公平时间片
+	 */
 	slice = __sched_period(nr_running + !se->on_rq);
 
+	/*
+	 * 遍历 sched_entity 的层级（支持 group scheduling）
+	 * 即：task → cgroup → 更高层 group
+	 */
 	for_each_sched_entity(se) {
+		/* 指向当前层级 cfs_rq 的负载 */
 		struct load_weight *load;
+
+		/* 临时 load_weight，用于处理不在 rq 上的情况 */
 		struct load_weight lw;
 
+		/* 获取当前 se 所属的 cfs_rq */
 		cfs_rq = cfs_rq_of(se);
+
+		/* 默认 load 指向该 cfs_rq 的总负载 */
 		load = &cfs_rq->load;
 
+		/*
+		 * 如果当前实体还不在 rq 上（例如 wakeup 新任务）：
+		 * 需要构造一个“包含该 se 的虚拟负载”
+		 */
 		if (unlikely(!se->on_rq)) {
+			/* 拷贝当前 cfs_rq 的负载 */
 			lw = cfs_rq->load;
 
+			/* 把当前 se 的 weight 加进去（模拟入队） */
 			update_load_add(&lw, se->load.weight);
+
+			/* 使用这个临时负载 */
 			load = &lw;
 		}
+
+		/*
+		 * 按权重比例缩放时间片：
+		 *
+		 * slice = slice * se->weight / cfs_rq->total_weight
+		 *
+		 * 即：在当前层级中，分到属于自己的那一部分
+		 */
 		slice = __calc_delta(slice, se->load.weight, load);
 	}
 
+	/*
+	 * 如果开启 BASE_SLICE 特性：
+	 * 强制时间片不能小于最小调度粒度
+	 */
 	if (sched_feat(BASE_SLICE))
 		slice = max(slice, (u64)sysctl_sched_min_granularity);
 
+	/* 返回最终计算出的时间片 */
 	return slice;
 }
 
@@ -848,39 +904,75 @@ static void update_tg_load_avg(struct cfs_rq *cfs_rq)
 
 /*
  * Update the current task's runtime statistics.
+ * 更新当前进程的运行时间统计信息
  */
 static void update_curr(struct cfs_rq *cfs_rq)
 {
+	/* 当前运行队列 cfs_rq 中处于执行态的进程的调度实体 sched_entity */
 	struct sched_entity *curr = cfs_rq->curr;
+
+	/* 获取当前 rq 的时钟（任务运行时间基准），单位通常是 ns */
 	u64 now = rq_clock_task(rq_of(cfs_rq));
+
+	/* 本次调度周期内实际运行的时间差 */
 	u64 delta_exec;
 
+	/* 若当前没有正在运行的调度实体，则直接返回 */
 	if (unlikely(!curr))
 		return;
 
+	/* 计算当前实体从上次开始运行到现在的执行时间 */
+	/* exec_start 是在进程即将获取 CPU 的时候设置的，具体来说是调度流程中的 pick_next_task 设置的 */
 	delta_exec = now - curr->exec_start;
+
+	/* 若时间差非法（可能时钟异常或未推进），则返回 */
 	if (unlikely((s64)delta_exec <= 0))
 		return;
 
+	/* 更新 exec_start，为下一次统计做准备 */
 	curr->exec_start = now;
 
+	/*
+	 * 更新该调度实体历史上的最大执行时间片
+	 * schedstat_set 用于统计信息记录（在开启调度统计时有效）
+	 */
 	schedstat_set(curr->statistics.exec_max,
 		      max(delta_exec, curr->statistics.exec_max));
 
+	/* 累加该调度实体的总运行时间（真实运行时间） */
 	curr->sum_exec_runtime += delta_exec;
+
+	/* 累加当前 cfs_rq 的执行时钟 */
 	schedstat_add(cfs_rq->exec_clock, delta_exec);
 
+	/*
+	 * 更新虚拟运行时间 vruntime
+	 * 核心：根据权重（nice）对实际运行时间进行加权
+	 * nice 越低（优先级越高），vruntime 增长越慢
+	 */
 	curr->vruntime += calc_delta_fair(delta_exec, curr);
+
+	/* 更新 cfs_rq 中的最小 vruntime，用于红黑树排序基准 */
 	update_min_vruntime(cfs_rq);
 
+	/*
+	 * 如果当前调度实体是一个 task（而不是 group entity）
+	 */
 	if (entity_is_task(curr)) {
+		/* 从 sched_entity 还原 task_struct */
 		struct task_struct *curtask = task_of(curr);
 
+		/* tracepoint：记录调度运行时间统计（用于 ftrace/perf） */
 		trace_sched_stat_runtime(curtask, delta_exec, curr->vruntime);
+
+		/* 统计该 task 在 cgroup 中的 CPU 使用时间 */
 		cgroup_account_cputime(curtask, delta_exec);
+
+		/* 统计该 task 在调度组中的执行时间 */
 		account_group_exec_runtime(curtask, delta_exec);
 	}
 
+	/* 更新 CFS 运行队列的带宽控制（用于 CPU bandwidth control） */
 	account_cfs_rq_runtime(cfs_rq, delta_exec);
 }
 
@@ -4569,6 +4661,7 @@ check_preempt_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 	ideal_runtime = sched_slice(cfs_rq, curr);
 	delta_exec = curr->sum_exec_runtime - curr->prev_sum_exec_runtime;
 	if (delta_exec > ideal_runtime) {
+		/* 触发抢占 */
 		resched_curr(rq_of(cfs_rq));
 		/*
 		 * The current task ran long enough, ensure it doesn't get
@@ -4583,6 +4676,7 @@ check_preempt_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 	 * narrow margin doesn't have to wait for a full slice.
 	 * This also mitigates buddy induced latencies under load.
 	 */
+	/* 判断实际运行时间是否小于调度粒度 */
 	if (delta_exec < sysctl_sched_min_granularity)
 		return;
 
@@ -4592,6 +4686,7 @@ check_preempt_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 	if (delta < 0)
 		return;
 
+	/* 计算当前进程的虚拟运行时间与队首进程的虚拟运行时间的差值，如果差值大于前面计算出来的理论运行时间就会调用 resched_curr 来触发抢占 */
 	if (delta > ideal_runtime)
 		resched_curr(rq_of(cfs_rq));
 }
