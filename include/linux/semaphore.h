@@ -13,7 +13,9 @@
 
 /* Please don't access any members of this structure directly */
 struct semaphore {
+	/* 自旋锁同时保护着等待队列和count */
 	raw_spinlock_t		lock;
+	/* 某一类资源的个数 */
 	unsigned int		count;
 	struct list_head	wait_list;
 };

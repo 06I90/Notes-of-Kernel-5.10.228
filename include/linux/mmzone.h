@@ -429,6 +429,7 @@ struct zone {
 	/* Read-mostly fields */
 
 	/* zone watermarks, access with *_wmark_pages(zone) macros */
+	/* 水位线 min low high，控制直接回收和 kswapd 唤醒 */
 	unsigned long _watermark[NR_WMARK];
 	unsigned long watermark_boost;
 
@@ -537,6 +538,7 @@ struct zone {
 	ZONE_PADDING(_pad1_)
 
 	/* free areas of different sizes */
+	/* Buddy allocator 核心，各 order 空闲链表 */
 	struct free_area	free_area[MAX_ORDER];
 
 	/* zone flags, see below */
@@ -713,7 +715,7 @@ struct deferred_split {
  * On NUMA machines, each NUMA node would have a pg_data_t to describe
  * it's memory layout. On UMA machines there is a single pglist_data which
  * describes the whole memory.
- * NUMA机上，每一个节点都有pg_data_t来描述
+ * NUMA 机上，每一个节点都有 pg_data_t 来描述
  *
  * Memory statistics and page replacement data structures are maintained on a
  * per-zone basis.
@@ -723,7 +725,7 @@ typedef struct pglist_data {
 	 * node_zones contains just the zones for THIS node. Not all of the
 	 * zones may be populated, but it is the full list. It is referenced by
 	 * this node's node_zonelists as well as other node's node_zonelists.
-	 * 仅包含当前节点的区域
+	 * 该 Node 下所有 Zone
 	 */
 	struct zone node_zones[MAX_NR_ZONES];
 
@@ -757,6 +759,7 @@ typedef struct pglist_data {
 	 */
 	spinlock_t node_size_lock;
 #endif
+	/* Node 起始 PFN */
 	unsigned long node_start_pfn;
 	unsigned long node_present_pages; /* total number of physical pages */
 	unsigned long node_spanned_pages; /* total size of physical page

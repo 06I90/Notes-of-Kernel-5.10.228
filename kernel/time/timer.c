@@ -2053,6 +2053,7 @@ void __init init_timers(void)
 /**
  * msleep - sleep safely even with waitqueue interruptions
  * @msecs: Time in milliseconds to sleep for
+ * 进入 D 态
  */
 void msleep(unsigned int msecs)
 {

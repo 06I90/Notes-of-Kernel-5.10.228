@@ -797,6 +797,7 @@ typedef struct {
 	 * Make sure that readers don't starve writers on PREEMPT_RT: use
 	 * seqcount_spinlock_t instead of seqcount_t. Check __SEQ_LOCK().
 	 */
+	/* 可以简单地理解为包含一个 int 序列号 */
 	seqcount_spinlock_t seqcount;
 	spinlock_t lock;
 } seqlock_t;

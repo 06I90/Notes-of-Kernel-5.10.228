@@ -49,6 +49,7 @@ static inline void complete_release(struct completion *x) {}
  * This macro declares and initializes a completion structure. Generally used
  * for static declarations. You should use the _ONSTACK variant for automatic
  * variables.
+ * 静态声明和初始化一个 completion 结构体，存储于静态存储区，生命周期较长
  */
 #define DECLARE_COMPLETION(work) \
 	struct completion work = COMPLETION_INITIALIZER(work)
@@ -64,6 +65,7 @@ static inline void complete_release(struct completion *x) {}
  *
  * This macro declares and initializes a completion structure on the kernel
  * stack.
+ * 声明和初始化一个 completion 结构体，存储于栈，生命周期较短
  */
 #ifdef CONFIG_LOCKDEP
 # define DECLARE_COMPLETION_ONSTACK(work) \

@@ -47,17 +47,19 @@ static noinline void __up(struct semaphore *sem);
  * semaphore, calling this function will put the task to sleep until the
  * semaphore is released.
  *
- * Use of this function is deprecated, please use down_interruptible() or
+ * Use of this function is deprecated反对的, please use down_interruptible() or
  * down_killable() instead.
  */
 void down(struct semaphore *sem)
 {
 	unsigned long flags;
-
+	/* 先持有自旋锁 */
 	raw_spin_lock_irqsave(&sem->lock, flags);
+	/* 看看 count 是不是大于 0，大于 0 的话代表资源还有剩余，我们直接减 1，代表占用一份资源 */
 	if (likely(sem->count > 0))
 		sem->count--;
 	else
+	/* 资源没有了，进等待队列等待 */
 		__down(sem);
 	raw_spin_unlock_irqrestore(&sem->lock, flags);
 }
@@ -71,6 +73,9 @@ EXPORT_SYMBOL(down);
  * acquire the semaphore, calling this function will put the task to sleep.
  * If the sleep is interrupted by a signal, this function will return -EINTR.
  * If the semaphore is successfully acquired, this function returns 0.
+ * 尝试获取信号量
+ * - 如果不可用，进入阻塞等待，期间可被信号中断，返回 -EINTR
+ * - 如果成功获取信号量，返回 0
  */
 int down_interruptible(struct semaphore *sem)
 {
@@ -97,6 +102,10 @@ EXPORT_SYMBOL(down_interruptible);
  * If the sleep is interrupted by a fatal signal, this function will return
  * -EINTR.  If the semaphore is successfully acquired, this function returns
  * 0.
+ * 尝试获取信号量
+ * - 如果不可用，进入阻塞等待，期间可被致死信号 SIGKILL 中断，返回 -EINTR
+ * - 如果成功获取信号量，返回 0
+ * 比 __down_interruptible 更安全，减少意外被普通信号中断
  */
 int down_killable(struct semaphore *sem)
 {
@@ -178,11 +187,13 @@ EXPORT_SYMBOL(down_timeout);
 void up(struct semaphore *sem)
 {
 	unsigned long flags;
-
+	/* 加自旋锁 */
 	raw_spin_lock_irqsave(&sem->lock, flags);
+	/* 等待队列是否为空，如果为空的话直接把 count 加 1 就可以 */
 	if (likely(list_empty(&sem->wait_list)))
 		sem->count++;
 	else
+	/* 不为空的话，则代表有人在等待资源，资源就不加 1 了，直接唤醒队首的线程来获取 */
 		__up(sem);
 	raw_spin_unlock_irqrestore(&sem->lock, flags);
 }
@@ -198,7 +209,7 @@ struct semaphore_waiter {
 
 /*
  * Because this function is inlined, the 'state' parameter will be
- * constant, and thus optimised away by the compiler.  Likewise the
+ * constant, and thus optimised away by the compiler.  Likewise同样地 the
  * 'timeout' parameter for the cases without timeouts.
  */
 static inline int __sched __down_common(struct semaphore *sem, long state,

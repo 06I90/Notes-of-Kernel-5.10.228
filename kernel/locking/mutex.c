@@ -18,6 +18,7 @@
  *
  * Also see Documentation/locking/mutex-design.rst.
  */
+#include "linux/zstd.h"
 #include <linux/mutex.h>
 #include <linux/ww_mutex.h>
 #include <linux/sched/signal.h>
@@ -165,9 +166,12 @@ static inline bool __mutex_trylock(struct mutex *lock)
  */
 static __always_inline bool __mutex_trylock_fast(struct mutex *lock)
 {
+	/* struct task_struct * 强转为 ulong */
 	unsigned long curr = (unsigned long)current;
 	unsigned long zero = 0UL;
-
+	/* CAS 原子指令，从硬件上确保原子性 */
+	/* owner是 0，代表当前锁是开着的，就把 owner 设置为自己（也就是当前线程 curr），返回 1 */
+	/* owner非 0，代表有人持有锁，返回 0 */
 	if (atomic_long_try_cmpxchg_acquire(&lock->owner, &zero, curr))
 		return true;
 
@@ -269,7 +273,7 @@ static void __sched __mutex_lock_slowpath(struct mutex *lock);
  * mutex_lock - acquire the mutex
  * @lock: the mutex to be acquired
  *
- * Lock the mutex exclusively for this task. If the mutex is not
+ * Lock the mutex exclusively独占的 for this task. If the mutex is not
  * available right now, it will sleep until it can get it.
  *
  * The mutex must later on be released by the same task that
@@ -290,6 +294,7 @@ void __sched mutex_lock(struct mutex *lock)
 {
 	might_sleep();
 
+	/* 加锁失败，走慢速路径，会进入 D 态 */
 	if (!__mutex_trylock_fast(lock))
 		__mutex_lock_slowpath(lock);
 }
@@ -744,6 +749,9 @@ static noinline void __sched __mutex_unlock_slowpath(struct mutex *lock, unsigne
 void __sched mutex_unlock(struct mutex *lock)
 {
 #ifndef CONFIG_DEBUG_LOCK_ALLOC
+	/* 解锁的时候先尝试快速解锁，快速解锁的意思是没有其它在等待队列里，可以直接释放锁
+	   加锁时设置了 MUTEX_FLAG_WAITERS 标志，lock->owner 和 curr 就不会相等，直接释放锁就会失败，就要走慢速路径
+	*/
 	if (__mutex_unlock_fast(lock))
 		return;
 #endif
@@ -1044,6 +1052,7 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
 		}
 
 		spin_unlock(&lock->wait_lock);
+		/* 休眠函数，它会调度其它进程来执行，自己就休眠了，直到有人唤醒自己才会醒来继续执行 */
 		schedule_preempt_disabled();
 
 		first = __mutex_waiter_is_first(lock, &waiter);
@@ -1224,6 +1233,7 @@ EXPORT_SYMBOL_GPL(ww_mutex_lock_interruptible);
 
 /*
  * Release the lock, slowpath:
+ * 会先释放锁，然后唤醒等待队列里面的第一个等待者
  */
 static noinline void __sched __mutex_unlock_slowpath(struct mutex *lock, unsigned long ip)
 {

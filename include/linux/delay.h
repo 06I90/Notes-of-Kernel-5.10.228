@@ -31,7 +31,7 @@ extern unsigned long loops_per_jiffy;
  * mdelay() provides a wrapper to prevent this.  For delays greater
  * than MAX_UDELAY_MS milliseconds, the wrapper is used.  Architecture
  * specific values can be defined in asm-???/delay.h as an override.
- * The 2nd mdelay() definition ensures GCC will optimize away the 
+ * The 2nd mdelay() definition ensures GCC will optimize away the
  * while loop for the common cases where n <= MAX_UDELAY_MS  --  Paul G.
  */
 
@@ -60,6 +60,7 @@ void msleep(unsigned int msecs);
 unsigned long msleep_interruptible(unsigned int msecs);
 void usleep_range(unsigned long min, unsigned long max);
 
+/* 会进入D 态 */
 static inline void ssleep(unsigned int seconds)
 {
 	msleep(seconds * 1000);

@@ -85,6 +85,7 @@ struct page {
 			 */
 			struct list_head lru;
 			/* See page-flags.h for PAGE_MAPPING_FLAGS */
+			/* 指向该页所属的文件映射 */
 			struct address_space *mapping;
 			pgoff_t index;		/* Our offset within mapping. */
 			/**
@@ -183,6 +184,7 @@ struct page {
 		 * If the page can be mapped to userspace, encodes the number
 		 * of times this page is referenced by a page table.
 		 */
+		/* 有多少 PTE 映射到该物理页 */
 		atomic_t _mapcount;
 
 		/*
@@ -198,6 +200,7 @@ struct page {
 	};
 
 	/* Usage count. *DO NOT USE DIRECTLY*. See page_ref.h */
+	/* 当 refcount=0，页可释放 */
 	atomic_t _refcount;
 
 #ifdef CONFIG_MEMCG

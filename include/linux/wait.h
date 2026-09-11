@@ -28,14 +28,15 @@ int default_wake_function(struct wait_queue_entry *wq_entry, unsigned mode, int 
  */
 struct wait_queue_entry {
 	unsigned int		flags;
-	void			*private;
-	wait_queue_func_t	func;
-	struct list_head	entry;
+	void			*private; // 通常指向等待的进程 task_struct
+	wait_queue_func_t	func; // 唤醒时要调用的回调函数
+	struct list_head	entry; // 用于将当前条目链接到等待队列中
 };
 
 struct wait_queue_head {
-	spinlock_t		lock;
-	struct list_head	head;
+	/* 可能有多个 CPU 上的进程同时尝试加入或离开队列，所以必须有锁来保证操作的原子性 */
+	spinlock_t		lock; /* 保护等待队列的自旋锁 */
+	struct list_head	head; /* 等待队列的链表头 */
 };
 typedef struct wait_queue_head wait_queue_head_t;
 
@@ -327,6 +328,7 @@ __out:	__ret;									\
  * wake_up() has to be called after changing any variable that could
  * change the result of the wait condition.
  */
+/* 使当前进程进入不可中断的睡眠状态，直到 condition 为真 */
 #define wait_event(wq_head, condition)						\
 do {										\
 	might_sleep();								\
@@ -483,6 +485,7 @@ do {										\
  * The function will return -ERESTARTSYS if it was interrupted by a
  * signal and 0 if @condition evaluated to true.
  */
+/* 使当前进程进入可中断的睡眠状态，可以被信号唤醒 */
 #define wait_event_interruptible(wq_head, condition)				\
 ({										\
 	int __ret = 0;								\

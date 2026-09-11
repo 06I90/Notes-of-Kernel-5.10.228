@@ -71,7 +71,9 @@ struct ww_acquire_ctx;
  */
 
 struct mutex {
+	/* 表示当前持有锁的线程 */
 	atomic_long_t		owner;
+	/* 自旋锁保护等待队列 wait_list */
 	spinlock_t		wait_lock;
 #ifdef CONFIG_MUTEX_SPIN_ON_OWNER
 	struct optimistic_spin_queue osq; /* Spinner MCS lock */
