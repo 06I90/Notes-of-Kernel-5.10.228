@@ -2250,17 +2250,27 @@ EXPORT_SYMBOL(alloc_pages_vma);
  */
 struct page *alloc_pages_current(gfp_t gfp, unsigned order)
 {
+	/*
+	NUMA 内存分配策略，例如：
+		优先从某个 Node 分配
+		只允许从某些 Node 分配
+		在多个 Node 之间交错分配
+	 */
 	struct mempolicy *pol = &default_policy;
 	struct page *page;
 
+	/*
+	进程上下文 → 可以考虑 current 的 NUMA policy
+	中断上下文 → 使用 default_policy
+	*/
 	if (!in_interrupt() && !(gfp & __GFP_THISNODE))
-		pol = get_task_policy(current);
+		pol = get_task_policy(current); /* 获取当前进程的 memory policy */
 
 	/*
 	 * No reference counting needed for current->mempolicy
 	 * nor system default_policy
 	 */
-	if (pol->mode == MPOL_INTERLEAVE)
+	if (pol->mode == MPOL_INTERLEAVE) /* 交错分配策略 */
 		page = alloc_page_interleave(gfp, order, interleave_nodes(pol));
 	else
 		page = __alloc_pages_nodemask(gfp, order,

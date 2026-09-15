@@ -447,6 +447,7 @@ static inline bool gfpflags_normal_context(const gfp_t gfp_flags)
 	| 1 << (___GFP_MOVABLE | ___GFP_DMA32 | ___GFP_DMA | ___GFP_HIGHMEM)  \
 )
 
+/* gfp_zone() = 从 gfp_t 中提取 Zone 修饰信息，并通过 GFP_ZONE_TABLE 将其转换成实际的 zone_type。 */
 static inline enum zone_type gfp_zone(gfp_t flags)
 {
 	enum zone_type z;
@@ -464,7 +465,13 @@ static inline enum zone_type gfp_zone(gfp_t flags)
  * can allocate highmem pages, the *get*page*() variants return
  * virtual kernel addresses to the allocated page(s).
  */
-
+/* 如果设置了 __GFP_THISNODE，那么只能在当前指定的 Node 上分配，不允许 fallback 到其他 Node。 */
+/*
+fallback 机制：
+Node 0 → Zone NORMAL
+              ↓ 失败
+         Node 1 → Zone NORMAL
+*/
 static inline int gfp_zonelist(gfp_t flags)
 {
 #ifdef CONFIG_NUMA
@@ -483,9 +490,23 @@ static inline int gfp_zonelist(gfp_t flags)
  * For the normal case of non-DISCONTIGMEM systems the NODE_DATA() gets
  * optimized to &contig_page_data at compile-time.
  */
+/*
+一个 NUMA Node 并不是只有一个 zonelist，而是通常有两套：
+NODE_DATA(nid)
+    │
+    └── node_zonelists[]
+            │
+            ├── [ZONELIST_FALLBACK]
+            │       ↓
+            │   可以跨 Node 找内存
+            │
+            └── [ZONELIST_NOFALLBACK]
+                    ↓
+                只能当前 Node
+*/
 static inline struct zonelist *node_zonelist(int nid, gfp_t flags)
 {
-	return NODE_DATA(nid)->node_zonelists + gfp_zonelist(flags);
+	return NODE_DATA(nid)->node_zonelists + gfp_zonelist(flags); /* 数组指针运算 */
 }
 
 #ifndef HAVE_ARCH_FREE_PAGE

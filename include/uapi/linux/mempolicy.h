@@ -20,7 +20,7 @@ enum {
 	MPOL_DEFAULT,
 	MPOL_PREFERRED,
 	MPOL_BIND,
-	MPOL_INTERLEAVE,
+	MPOL_INTERLEAVE, /* 交错分配策略，Node 0 → Node 1 → Node 2 → Node 3 之间轮流分配 */
 	MPOL_LOCAL,
 	MPOL_MAX,	/* always last member of enum */
 };

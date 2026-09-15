@@ -2252,6 +2252,7 @@ static inline bool check_new_pcp(struct page *page)
 }
 #endif /* CONFIG_DEBUG_VM */
 
+/* page 有问题时返回 true */
 static bool check_new_pages(struct page *page, unsigned int order)
 {
 	int i;
@@ -2306,6 +2307,18 @@ static void prep_new_page(struct page *page, unsigned int order, gfp_t gfp_flags
  * Go through the free lists for the given migratetype and remove
  * the smallest available page from the freelists
  */
+/*
+zone
+ │
+ └── free_area[]
+       │
+       ├── free_area[0] → order 0 的空闲块
+       ├── free_area[1] → order 1 的空闲块
+       ├── free_area[2] → order 2 的空闲块
+       ├── free_area[3] → order 3 的空闲块
+       ├── ...
+       └── free_area[MAX_ORDER-1]
+*/
 static __always_inline
 struct page *__rmqueue_smallest(struct zone *zone, unsigned int order,
 						int migratetype)
@@ -2320,8 +2333,11 @@ struct page *__rmqueue_smallest(struct zone *zone, unsigned int order,
 		page = get_page_from_free_area(area, migratetype);
 		if (!page)
 			continue;
+		/* 找到以后先从 free list 删除 */
 		del_page_from_free_list(page, zone, current_order);
+		/* Buddy “拆分大块”的地方 */
 		expand(zone, page, order, current_order, migratetype);
+		/* 设置 page 的 migratetype 信息 */
 		set_pcppage_migratetype(page, migratetype);
 		return page;
 	}
@@ -2846,6 +2862,9 @@ __rmqueue(struct zone *zone, unsigned int order, int migratetype,
 {
 	struct page *page;
 
+	/*
+	CMA 的优化策略，不是主线
+	如果 CMA 区域占 Zone 空闲内存比例比较高，那么允许优先从 CMA 中分配一些 movable 页面，避免 CMA 内存长期闲置。 */
 	if (IS_ENABLED(CONFIG_CMA)) {
 		/*
 		 * Balance movable allocations between regular and CMA areas by
@@ -2861,7 +2880,9 @@ __rmqueue(struct zone *zone, unsigned int order, int migratetype,
 		}
 	}
 retry:
+	/* 从指定 migratetype 的 Buddy free area 中，寻找满足 order 的最小可用块。 */
 	page = __rmqueue_smallest(zone, order, migratetype);
+	/* 当前指定的 migratetype 没有合适的块，走 fallback 机制 */
 	if (unlikely(!page)) {
 		if (alloc_flags & ALLOC_CMA)
 			page = __rmqueue_cma_fallback(zone, order);
@@ -3422,6 +3443,7 @@ static struct page *rmqueue_pcplist(struct zone *preferred_zone,
 /*
  * Allocate a page from the given zone. Use pcplists for order-0 allocations.
  */
+/* 从指定 Zone 的空闲页中取出满足 order 和 migratetype 要求的页面；order == 0 优先从 per-CPU page list（pcplist）取，否则直接操作 Buddy 的 free area。 */
 static inline
 struct page *rmqueue(struct zone *preferred_zone,
 			struct zone *zone, unsigned int order,
@@ -3431,13 +3453,23 @@ struct page *rmqueue(struct zone *preferred_zone,
 	unsigned long flags;
 	struct page *page;
 
+	/* 不需要每次都去操作 Zone 的 Buddy 全局空闲链表，而是优先使用 per-CPU page list。
+	CPU 0 → 自己的一小批空闲 page
+	CPU 1 → 自己的一小批空闲 page
+	这样可以减少多个 CPU 竞争：spin_lock_irqsave(&zone->lock, flags);
+	如果每次 alloc_pages(GFP_KERNEL, 0) 都去抢：zone->lock
+	多核系统下开销会比较明显。
+	order-0 是 Linux 页面分配中非常常见的路径，因此专门做了 per-CPU cache 优化。
+	*/
 	if (likely(order == 0)) {
 		/*
 		 * MIGRATE_MOVABLE pcplist could have the pages on CMA area and
 		 * we need to skip it when CMA area isn't allowed.
 		 */
+		/* MIGRATE_MOVABLE 的 pcplist 里面可能混有来自 CMA 区域的页面；如果当前这次分配不允许使用 CMA，就不能直接从这个 pcplist 拿。 */
 		if (!IS_ENABLED(CONFIG_CMA) || alloc_flags & ALLOC_CMA ||
 				migratetype != MIGRATE_MOVABLE) {
+			/* 从当前 CPU 对应的 page cache 中取一个空闲页。 */
 			page = rmqueue_pcplist(preferred_zone, zone, gfp_flags,
 					migratetype, alloc_flags);
 			goto out;
@@ -3448,7 +3480,11 @@ struct page *rmqueue(struct zone *preferred_zone,
 	 * We most definitely don't want callers attempting to
 	 * allocate greater than order-1 page units with __GFP_NOFAIL.
 	 */
+	/* __GFP_NOFAIL 表示调用者要求：这个分配最终不能失败。 */
+	/* 但是内核不希望调用者拿着 __GFP_NOFAIL 去申请很大的连续物理内存。 */
+	/* __GFP_NOFAIL 并不适合高阶分配。 */
 	WARN_ON_ONCE((gfp_flags & __GFP_NOFAIL) && (order > 1));
+	/* 接下来才真正锁住 Zone */
 	spin_lock_irqsave(&zone->lock, flags);
 
 	do {
@@ -3460,20 +3496,26 @@ struct page *rmqueue(struct zone *preferred_zone,
 		 * request should skip it.
 		 */
 		if (order > 0 && alloc_flags & ALLOC_HARDER) {
+			/* 内核有一个特殊的 MIGRATE_HIGHATOMIC 区域，用来给高阶原子分配保留内存 */
+			/* 如果这次分配权限比较高，并且是高阶分配，先尝试从 MIGRATE_HIGHATOMIC 获取。 */
 			page = __rmqueue_smallest(zone, order, MIGRATE_HIGHATOMIC);
 			if (page)
 				trace_mm_page_alloc_zone_locked(page, order, migratetype);
 		}
+		/* 如果拿不到，再走正常路径。 */
 		if (!page)
 			page = __rmqueue(zone, order, migratetype, alloc_flags);
-	} while (page && check_new_pages(page, order));
+	} while (page && check_new_pages(page, order)); /* 如果分配了 page 但是这个 page 有问题，就重新分配 */
 	spin_unlock(&zone->lock);
 	if (!page)
 		goto failed;
+	/* Zone 的 free page 统计要相应减少，这里的 mod 是 modify 的缩写 */
 	__mod_zone_freepage_state(zone, -(1 << order),
 				  get_pcppage_migratetype(page));
 
+	/* 记录 VM 统计信息，这次从这个 Zone 分配了多少页 */
 	__count_zid_vm_events(PGALLOC, page_zonenum(page), 1 << order);
+	/* 更新 Zone/NUMA 相关统计。 */
 	zone_statistics(preferred_zone, zone);
 	local_irq_restore(flags);
 
@@ -3837,6 +3879,7 @@ retry:
 		 * will require awareness of nodes in the
 		 * dirty-throttling and the flusher threads.
 		 */
+		/* 不要让某一个 NUMA Node 承担过多的 dirty page。 */
 		if (ac->spread_dirty_pages) {
 			if (last_pgdat_dirty_limit == zone->zone_pgdat)
 				continue;
@@ -3856,6 +3899,7 @@ retry:
 			 * fragmenting fallbacks. Locality is more important
 			 * than fragmentation avoidance.
 			 */
+			/* 本地性优先级高于碎片规避。 */
 			local_nid = zone_to_nid(ac->preferred_zoneref->zone);
 			if (zone_to_nid(zone) != local_nid) {
 				alloc_flags &= ~ALLOC_NOFRAGMENT;
@@ -3864,6 +3908,8 @@ retry:
 		}
 
 		mark = wmark_pages(zone, alloc_flags & ALLOC_WMARK_MASK);
+		/* 快速判断当前 Zone 是否有足够的可用内存水位来满足这次 order 分配。 */
+		/* 如果水位不够 */
 		if (!zone_watermark_fast(zone, order, mark,
 				       ac->highest_zoneidx, alloc_flags,
 				       gfp_mask)) {
@@ -3875,12 +3921,14 @@ retry:
 			 * grow this zone if it contains deferred pages.
 			 */
 			if (static_branch_unlikely(&deferred_pages)) {
+				/* 内核启动阶段延迟初始化页面的机制 */
 				if (_deferred_grow_zone(zone, order))
 					goto try_this_zone;
 			}
 #endif
 			/* Checked here to keep the fast path fast */
 			BUILD_BUG_ON(ALLOC_NO_WATERMARKS < NR_WMARK);
+			/* 如果当前分配拥有 ALLOC_NO_WATERMARKS 权限，则忽略普通 watermark 限制，继续尝试。 */
 			if (alloc_flags & ALLOC_NO_WATERMARKS)
 				goto try_this_zone;
 
@@ -3888,6 +3936,7 @@ retry:
 			    !zone_allows_reclaim(ac->preferred_zoneref->zone, zone))
 				continue;
 
+			/* 如果 Zone 水位不足，而且允许 Node Reclaim，就尝试该 Node 的内存 */
 			ret = node_reclaim(zone->zone_pgdat, gfp_mask, order);
 			switch (ret) {
 			case NODE_RECLAIM_NOSCAN:
@@ -3907,6 +3956,7 @@ retry:
 		}
 
 try_this_zone:
+		/* 从这个 Zone 的空闲页中真正拿出页面。 */
 		page = rmqueue(ac->preferred_zoneref->zone, zone, order,
 				gfp_mask, alloc_flags, ac->migratetype);
 		if (page) {
@@ -3936,6 +3986,9 @@ try_this_zone:
 	 * fragmented. If avoiding fragmentation, reset and try again.
 	 */
 	if (no_fallback) {
+		/* 整个 Zonelist 都遍历完都没有分配成功，如果之前为了避免碎片而设置了 ALLOC_NOFRAGMENT
+		那么先放宽限制，再重新遍历一次
+		*/
 		alloc_flags &= ~ALLOC_NOFRAGMENT;
 		goto retry;
 	}
@@ -4911,6 +4964,11 @@ got_pg:
 	return page;
 }
 
+/*
+填充 ac 结构体
+alloc_context
+	分配上下文结构体，包含了分配过程中需要使用的各种信息，例如首选的 zone、zonelist、nodemask、迁移类型等。
+*/
 static inline bool prepare_alloc_pages(gfp_t gfp_mask, unsigned int order,
 		int preferred_nid, nodemask_t *nodemask,
 		struct alloc_context *ac, gfp_t *alloc_mask,
@@ -4928,7 +4986,7 @@ static inline bool prepare_alloc_pages(gfp_t gfp_mask, unsigned int order,
 		 * to the current task context. It means that any node ok.
 		 */
 		if (!in_interrupt() && !ac->nodemask)
-			ac->nodemask = &cpuset_current_mems_allowed;
+			ac->nodemask = &cpuset_current_mems_allowed; /* 普通进程上下文，而且调用者没有提供自己的 nodemask，使用当前进程 cpuset 的允许 Node */
 		else
 			*alloc_flags |= ALLOC_CPUSET;
 	}
@@ -4936,8 +4994,18 @@ static inline bool prepare_alloc_pages(gfp_t gfp_mask, unsigned int order,
 	fs_reclaim_acquire(gfp_mask);
 	fs_reclaim_release(gfp_mask);
 
+	/* 是否允许 __GFP_DIRECT_RECLAIM？是 → might_sleep() */
+	/* 此处可能睡眠，后续在开启相应调试配置时，如果处于不在预期内的上下文，会产生警告：BUG: sleeping function called from invalid context */
 	might_sleep_if(gfp_mask & __GFP_DIRECT_RECLAIM);
 
+	/* 故障注入 fault injection */
+	/*
+	* 故障注入：
+	* 开启 CONFIG_FAIL_PAGE_ALLOC 后，内核可通过 fault injection 框架按配置的
+	* 概率等条件，故意让页面分配失败，模拟真实的内存不足等异常场景。
+	* 这样无需等待系统真正内存耗尽，就可以主动测试分配失败后的错误处理、
+	* 资源回收和代码鲁棒性，属于内核提供的故障测试机制。
+	*/
 	if (should_fail_alloc_page(gfp_mask, order))
 		return false;
 
@@ -4960,12 +5028,22 @@ static inline bool prepare_alloc_pages(gfp_t gfp_mask, unsigned int order,
 /*
  * This is the 'heart' of the zoned buddy allocator.
  */
+/*
+gfp_mask：
+	分配标志，指定分配的行为和约束条件，例如是否可以阻塞、是否可以使用高内存、是否可以使用文件系统等。
+order：
+	分配的页的阶数，表示要分配的页的数量为 2^order 个连续的页。
+preferred_nid：
+	首选的 NUMA 节点 ID，表示希望从哪个 NUMA 节点分配内存。如果为 NUMA_NO_NODE，则表示没有首选节点。
+nodemask：
+	一个指向 nodemask_t 类型的指针，表示允许分配的 NUMA 节点的掩码。可以用来限制分配只能发生在特定的节点上。
+*/
 struct page *
 __alloc_pages_nodemask(gfp_t gfp_mask, unsigned int order, int preferred_nid,
 							nodemask_t *nodemask)
 {
 	struct page *page;
-	unsigned int alloc_flags = ALLOC_WMARK_LOW;
+	unsigned int alloc_flags = ALLOC_WMARK_LOW; /* 这次分配首先按照 LOW watermark 进行检查 */
 	gfp_t alloc_mask; /* The gfp_t that was actually used for allocation */
 	struct alloc_context ac = { };
 
@@ -4987,6 +5065,7 @@ __alloc_pages_nodemask(gfp_t gfp_mask, unsigned int order, int preferred_nid,
 	 * Forbid the first pass from falling back to types that fragment
 	 * memory until all local zones are considered.
 	 */
+	/* 第一次尝试分配时，尽量不要为了满足请求而去使用容易造成内存碎片的其他迁移类型。 */
 	alloc_flags |= alloc_flags_nofragment(ac.preferred_zoneref->zone, gfp_mask);
 
 	/* First allocation attempt */
@@ -4994,12 +5073,14 @@ __alloc_pages_nodemask(gfp_t gfp_mask, unsigned int order, int preferred_nid,
 	if (likely(page))
 		goto out;
 
+	/* 如果 freelist 里面没有合适的页，就进入慢速路径 */
 	/*
 	 * Apply scoped allocation constraints. This is mainly about GFP_NOFS
 	 * resp. GFP_NOIO which has to be inherited for all allocation requests
 	 * from a particular context which has been marked by
 	 * memalloc_no{fs,io}_{save,restore}.
 	 */
+	/* 重新处理当前上下文的 GFP 限制 */
 	alloc_mask = current_gfp_context(gfp_mask);
 	ac.spread_dirty_pages = false;
 
